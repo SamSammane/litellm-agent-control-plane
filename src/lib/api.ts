@@ -280,10 +280,14 @@ export async function listModels(): Promise<ModelRow[]> {
   if (!isRecord(raw)) return [];
   const data = raw.data;
   if (!Array.isArray(data)) return [];
+  const seen = new Set<string>();
   const rows: ModelRow[] = [];
   for (const item of data) {
     const parsed = parseModelRow(item);
-    if (parsed) rows.push(parsed);
+    if (!parsed) continue;
+    if (seen.has(parsed.id)) continue;
+    seen.add(parsed.id);
+    rows.push(parsed);
   }
   return rows;
 }
