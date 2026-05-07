@@ -2,8 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -180,24 +178,10 @@ export default function NewSessionPage() {
 
   return (
     <div className="mx-auto w-full max-w-2xl px-6 py-8">
-      <div>
-        <Link
-          href="/sessions"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-3.5" />
-          Back to sessions
-        </Link>
-      </div>
-
-      <div className="mt-6">
-        <h1 className="text-[22px] font-semibold tracking-tight">
-          New Session
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Pick an agent and provision a sandbox to start running it on a repo.
-        </p>
-      </div>
+      <h1 className="text-[22px] font-semibold tracking-tight">New Session</h1>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Pick an agent and provision a sandbox to start running it on a repo.
+      </p>
 
       <Card className="mt-6">
         <CardHeader className="sr-only">
