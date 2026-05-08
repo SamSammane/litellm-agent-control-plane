@@ -299,33 +299,39 @@ export function Sidebar() {
               const active = pathname === href;
               const label = agentLabel(a);
               const agentSessions = sessionsByAgent.get(a.id) ?? [];
-              const isOpen = expanded.has(a.id);
+              const hasSessions = agentSessions.length > 0;
+              const isOpen = expanded.has(a.id) && hasSessions;
 
               return (
                 <li key={a.id}>
                   <div className="flex items-center gap-0.5">
-                    <button
-                      type="button"
-                      onClick={() => toggle(a.id)}
-                      aria-label={isOpen ? "Collapse" : "Expand"}
-                      aria-expanded={isOpen}
-                      disabled={agentSessions.length === 0}
-                      className="inline-flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-30 disabled:cursor-default"
-                    >
-                      {isOpen ? (
-                        <ChevronDown className="size-3" aria-hidden />
-                      ) : (
-                        <ChevronRight className="size-3" aria-hidden />
-                      )}
-                    </button>
+                    {hasSessions ? (
+                      <button
+                        type="button"
+                        onClick={() => toggle(a.id)}
+                        aria-label={isOpen ? "Collapse" : "Expand"}
+                        aria-expanded={isOpen}
+                        className="inline-flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      >
+                        {isOpen ? (
+                          <ChevronDown className="size-3" aria-hidden />
+                        ) : (
+                          <ChevronRight className="size-3" aria-hidden />
+                        )}
+                      </button>
+                    ) : (
+                      <span className="inline-flex h-7 w-5 shrink-0" aria-hidden />
+                    )}
                     <Link
                       href={href}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                        "flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                         active
-                          ? "bg-sidebar-accent text-foreground"
-                          : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
+                          ? "bg-sidebar-accent font-medium text-foreground"
+                          : isOpen
+                            ? "font-medium text-foreground hover:bg-sidebar-accent"
+                            : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
                       )}
                       title={label}
                     >
@@ -335,7 +341,7 @@ export function Sidebar() {
                         size={20}
                       />
                       <span className="min-w-0 flex-1 truncate">{label}</span>
-                      {agentSessions.length > 0 ? (
+                      {hasSessions ? (
                         <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground/60">
                           {agentSessions.length}
                         </span>
@@ -343,8 +349,8 @@ export function Sidebar() {
                     </Link>
                   </div>
 
-                  {isOpen && agentSessions.length > 0 ? (
-                    <ul className="ml-[26px] mt-px mb-1 space-y-px border-l border-sidebar-border/60 pl-2">
+                  {isOpen ? (
+                    <ul className="ml-[26px] mt-1 mb-2 space-y-px">
                       {agentSessions.map((s) => {
                         const sHref = `/sessions/${s.id}`;
                         const sActive = pathname === sHref;
@@ -354,25 +360,29 @@ export function Sidebar() {
                               href={sHref}
                               aria-current={sActive ? "page" : undefined}
                               className={cn(
-                                "flex items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                "flex h-9 items-center gap-2 rounded-md px-2 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                                 sActive
-                                  ? "bg-sidebar-accent text-foreground"
+                                  ? "bg-sidebar-accent font-medium text-foreground"
                                   : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
                               )}
                               title={`${s.id} · ${s.status}`}
                             >
-                              <span
-                                aria-hidden
-                                title={s.status}
-                                className={cn(
-                                  "size-1.5 shrink-0 rounded-full",
-                                  statusDotClass(s.status),
-                                )}
-                              />
+                              {sActive ? (
+                                <span
+                                  aria-hidden
+                                  title={s.status}
+                                  className={cn(
+                                    "size-1.5 shrink-0 rounded-full",
+                                    statusDotClass(s.status),
+                                  )}
+                                />
+                              ) : (
+                                <span className="inline-block size-1.5 shrink-0" aria-hidden />
+                              )}
                               <span className="min-w-0 flex-1 truncate">
                                 {sessionLabel(s)}
                               </span>
-                              <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/60">
+                              <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground/60">
                                 {formatRelative(s.created_at)}
                               </span>
                             </Link>
