@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { PanelLeft, Plus, Search } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 
+import { AgentAvatar } from "@/components/agent-avatar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 import {
@@ -122,14 +123,6 @@ export function Sidebar() {
 
       {/* Search row */}
       <div className="flex items-center gap-1.5 px-3 pb-2">
-        <button
-          type="button"
-          aria-label="Collapse sidebar"
-          title="Collapse sidebar (coming soon)"
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          <PanelLeft className="size-3.5" aria-hidden />
-        </button>
         <div
           className="flex flex-1 items-center gap-1.5 rounded-md border border-sidebar-border px-2 py-1 text-[11px] text-muted-foreground"
           aria-hidden
@@ -188,16 +181,17 @@ export function Sidebar() {
                     href={href}
                     aria-current={active ? "page" : undefined}
                     className={cn(
-                      "flex h-7 items-center gap-2 rounded-md px-2 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                      "flex h-8 items-center gap-2 rounded-md px-2 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                       active
                         ? "bg-sidebar-accent text-foreground"
                         : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
                     )}
                     title={label}
                   >
-                    <span
-                      aria-hidden
-                      className="size-1.5 shrink-0 rounded-full bg-muted-foreground/60"
+                    <AgentAvatar
+                      name={a.name ?? a.id}
+                      pfpUrl={a.pfp_url}
+                      size={20}
                     />
                     <span className="truncate">{label}</span>
                   </Link>
