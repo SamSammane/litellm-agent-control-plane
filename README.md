@@ -77,29 +77,43 @@ Drop a Dockerfile in `harnesses/<id>/`, re-run `./setup.sh`. Container must expo
 
 Auth: `Authorization: Bearer <MASTER_KEY>` on every request.
 
+Create an agent. Returns `{"id": "<agent_id>", ...}`.
+
 ```bash
-BASE=http://localhost:3000/api/v1/managed_agents
-H_AUTH="authorization: bearer $MASTER_KEY"
-H_JSON="content-type: application/json"
+curl -X POST http://localhost:3000/api/v1/managed_agents/agents \
+  -H "Authorization: Bearer <MASTER_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":     "code-reviewer",
+    "model":    "anthropic/claude-sonnet-4-6",
+    "prompt":   "Review for clarity and security.",
+    "repo_url": "https://github.com/BerriAI/litellm"
+  }'
+```
 
-# create
-AGENT=$(curl -sfX POST "$BASE/agents" -H "$H_AUTH" -H "$H_JSON" -d '{
-  "name":     "code-reviewer",
-  "model":    "anthropic/claude-sonnet-4-6",
-  "prompt":   "Review for clarity and security.",
-  "repo_url": "https://github.com/BerriAI/litellm"
-}' | jq -r .id)
+Spawn a session. Boots a Fargate task; ~60s cold. Returns `{"id": "<session_id>", "sandbox_url": "...", "status": "ready"}`.
 
-# spawn  (~60s cold)
-SESSION=$(curl -sfX POST "$BASE/agents/$AGENT/session" -H "$H_AUTH" -H "$H_JSON" \
-  -d '{"title":"smoke"}' | jq -r .id)
+```bash
+curl -X POST http://localhost:3000/api/v1/managed_agents/agents/<agent_id>/session \
+  -H "Authorization: Bearer <MASTER_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"smoke"}'
+```
 
-# message
-curl -sfX POST "$BASE/sessions/$SESSION/message" -H "$H_AUTH" -H "$H_JSON" \
+Send a message. Body + response are the [opencode HTTP API](https://github.com/sst/opencode) verbatim.
+
+```bash
+curl -X POST http://localhost:3000/api/v1/managed_agents/sessions/<session_id>/message \
+  -H "Authorization: Bearer <MASTER_KEY>" \
+  -H "Content-Type: application/json" \
   -d '{"text":"What does this repo do?"}'
+```
 
-# stop
-curl -sfX DELETE "$BASE/sessions/$SESSION" -H "$H_AUTH"
+Stop the session. Tears down the Fargate task; otherwise the reconciler reaps it after 24h idle.
+
+```bash
+curl -X DELETE http://localhost:3000/api/v1/managed_agents/sessions/<session_id> \
+  -H "Authorization: Bearer <MASTER_KEY>"
 ```
 
 ```ts
