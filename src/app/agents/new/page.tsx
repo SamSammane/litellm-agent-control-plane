@@ -23,6 +23,7 @@ import {
   McpToolRow,
   ModelRow,
   createAgent,
+  getPreinstalledGithubRepo,
   listMcps,
   listMcpTools,
   listModels,
@@ -58,6 +59,7 @@ export default function NewAgentPage() {
 
   const [models, setModels] = useState<ModelRow[]>([]);
   const [mcps, setMcps] = useState<McpRow[]>([]);
+  const [preinstalledRepo, setPreinstalledRepo] = useState<string>("");
   // Per-server: which tools are enabled. A missing entry = server not enabled.
   // An entry with an empty set = server enabled but every tool was unchecked
   // (treated as "not enabled" at submit time — submitting an empty whitelist
@@ -82,13 +84,15 @@ export default function NewAgentPage() {
     async function load() {
       setMetaError(null);
       try {
-        const [modelsRes, mcpsRes] = await Promise.all([
+        const [modelsRes, mcpsRes, repoRes] = await Promise.all([
           listModels().catch(() => [] as ModelRow[]),
           listMcps().catch(() => [] as McpRow[]),
+          getPreinstalledGithubRepo().catch(() => ""),
         ]);
         if (cancelled) return;
         setModels(modelsRes);
         setMcps(mcpsRes);
+        setPreinstalledRepo(repoRes);
       } catch (e) {
         if (cancelled) return;
         setMetaError(
@@ -302,6 +306,19 @@ export default function NewAgentPage() {
                   harness:{" "}
                   <span className="font-mono">{HARNESS_ID}</span>
                 </span>
+                {preinstalledRepo ? (
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    repo:{" "}
+                    <a
+                      href={preinstalledRepo}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-foreground underline-offset-2 hover:underline"
+                    >
+                      {preinstalledRepo}
+                    </a>
+                  </p>
+                ) : null}
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                   The local backend ships a single harness. Per-agent repo +
                   branch overrides are configured below.

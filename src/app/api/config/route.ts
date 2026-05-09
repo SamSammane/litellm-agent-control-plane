@@ -21,5 +21,9 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   return NextResponse.json({
     base_url: process.env.UI_PUBLIC_BASE_URL ?? "",
+    // The repo cloned into every Fargate container at session start when an
+    // agent has no `repo_url` override. Surfaced so the new-agent page can
+    // tell the user what they'll be coding against by default.
+    preinstalled_github_repo: process.env.PREINSTALLED_GITHUB_REPO ?? "",
   });
 }

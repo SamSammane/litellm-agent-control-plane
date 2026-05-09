@@ -74,17 +74,36 @@ function authHeader(): string | null {
  * 'Call this agent' snippets to show users the URL they'd hit from outside
  * the app. Cached for the lifetime of the page.
  */
-let _publicBasePromise: Promise<string> | null = null;
+interface PublicConfig {
+  base_url: string;
+  preinstalled_github_repo: string;
+}
+
+let _publicConfigPromise: Promise<PublicConfig> | null = null;
+
+function getPublicConfig(): Promise<PublicConfig> {
+  if (_publicConfigPromise) return _publicConfigPromise;
+  _publicConfigPromise = fetch("/api/config")
+    .then((r) =>
+      r.ok ? r.json() : { base_url: "", preinstalled_github_repo: "" },
+    )
+    .then((j) => ({
+      base_url: typeof j?.base_url === "string" ? j.base_url : "",
+      preinstalled_github_repo:
+        typeof j?.preinstalled_github_repo === "string"
+          ? j.preinstalled_github_repo
+          : "",
+    }))
+    .catch(() => ({ base_url: "", preinstalled_github_repo: "" }));
+  return _publicConfigPromise;
+}
 
 export function getPublicProxyBase(): Promise<string> {
-  if (_publicBasePromise) return _publicBasePromise;
-  _publicBasePromise = fetch("/api/config")
-    .then((r) => (r.ok ? r.json() : { base_url: "" }))
-    .then((j) =>
-      typeof j?.base_url === "string" ? j.base_url : "",
-    )
-    .catch(() => "");
-  return _publicBasePromise;
+  return getPublicConfig().then((c) => c.base_url);
+}
+
+export function getPreinstalledGithubRepo(): Promise<string> {
+  return getPublicConfig().then((c) => c.preinstalled_github_repo);
 }
 
 // ---------- Types ----------

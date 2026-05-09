@@ -1,10 +1,7 @@
 /**
- * Catch-all passthrough for /api/v1/* paths that don't have a more specific
- * handler (the managed-agents routes are explicit and win). Used by the UI
- * for /v1/models and /v1/mcp/server.
- *
- * MCP tool list (/mcp-rest/tools/list) lives at /api/mcp-rest/[...path],
- * not /api/v1, because LiteLLM exposes it without the /v1 prefix.
+ * Passthrough for LiteLLM's MCP REST endpoints — most importantly
+ * /mcp-rest/tools/list, used by the new-agent page to enumerate tools per
+ * MCP server. LiteLLM exposes these without a /v1 prefix.
  */
 
 import { forwardToLiteLLM } from "@/server/upstream-proxy";
@@ -18,7 +15,7 @@ interface RouteContext {
 
 async function forward(req: Request, ctx: RouteContext): Promise<Response> {
   const { path } = await ctx.params;
-  return forwardToLiteLLM(req, path, "v1");
+  return forwardToLiteLLM(req, path, "mcp-rest");
 }
 
 export async function GET(req: Request, ctx: RouteContext) {
