@@ -4,6 +4,56 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+# Harness images
+
+Each harness type has its own container image configured via env vars. Set these in the `litellm-env` k8s secret (or `.env` for local dev):
+
+| Env var | Harness | Default (fallback) |
+|---|---|---|
+| `K8S_HARNESS_IMAGE_OPENCODE` | `opencode` | value of `K8S_HARNESS_IMAGE` |
+| `K8S_HARNESS_IMAGE_CLAUDE_SDK` | `claude-agent-sdk` | value of `K8S_HARNESS_IMAGE` |
+| `K8S_HARNESS_IMAGE` | both (fallback) | `opencode-sandbox:dev` |
+
+The image is **snapshotted at agent-creation time** into `task_definition_arn`. Existing agents keep their image even after the env var changes — delete and recreate the agent to pick up a new image.
+
+To update on EKS:
+```bash
+kubectl patch secret litellm-env -p "{\"data\":{
+  \"K8S_HARNESS_IMAGE_OPENCODE\":\"$(echo -n <image> | base64 | tr -d '\n')\",
+  \"K8S_HARNESS_IMAGE_CLAUDE_SDK\":\"$(echo -n <image> | base64 | tr -d '\n')\"
+}}"
+# Then restart web+worker to reload env
+kubectl rollout restart deployment/litellm-web deployment/litellm-worker
+```
+
+# Schema migrations (Prisma + Neon)
+
+`DATABASE_URL` must be the **direct (non-pooled)** Neon connection string — Neon's pgbouncer pooler blocks Postgres advisory locks that `prisma migrate deploy` requires. The direct URL also works fine for app queries; pooler is purely an optimization.
+
+On Neon: Project → Connection Details → switch the dropdown from "Pooler" to "Direct".
+
+## Adding a new migration
+
+```bash
+# 1. Edit prisma/schema.prisma locally
+# 2. Generate a named migration file (does NOT run against DB)
+npx prisma migrate dev --name <migration_name> --create-only
+# 3. Commit prisma/migrations/XXXX_<migration_name>/migration.sql
+# 4. On next deploy, web pod startup runs: npx prisma migrate deploy
+```
+
+## Emergency: fix missing table without a deploy
+
+> **Warning:** `db push` will DROP columns/tables removed from `schema.prisma` without a confirmation prompt. Only run against a DB you can restore, or when you are certain no columns were removed since the last deploy.
+
+```bash
+npx prisma db push --skip-generate
+```
+
+## How the web pod runs migrations
+
+Startup command: `npx prisma migrate deploy && node server.js`
+
 # Debugging a stuck or slow session
 
 When investigating a session that's stuck in `creating` or that took unexpectedly long, **start with the diagnose endpoint** instead of running a dozen kubectl / curl / log queries by hand:

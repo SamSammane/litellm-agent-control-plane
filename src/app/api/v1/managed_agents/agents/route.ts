@@ -17,6 +17,7 @@ import {
   KNOWN_HARNESSES,
   encryptEnvVars,
   httpError,
+  resolveHarnessImage,
   toApiAgent,
 } from "@/server/types";
 import { wrap } from "@/server/route-helpers";
@@ -27,6 +28,7 @@ export const dynamic = "force-dynamic";
 
 const VALID_SORT_FIELDS = new Set(["created_at", "name", "harness_id", "sessions"]);
 const VALID_ORDERS = new Set(["asc", "desc"]);
+
 
 export const GET = wrap(async (req: Request) => {
   assertAuth(req);
@@ -120,10 +122,9 @@ export const POST = wrap(async (req: Request) => {
         ...(body.env_vars ?? {}),
         ...(body.requirements ? { AGENT_REQUIREMENTS: body.requirements } : {}),
       }) as Prisma.InputJsonValue,
-      // Legacy column from the ECS era; on k8s we run the same harness
-      // image for every Sandbox so we just stash that here. Plan is to
-      // drop the column on the next schema bump.
-      task_definition_arn: env.K8S_HARNESS_IMAGE,
+      // Snapshot the harness image at agent-creation time so existing agents
+      // keep running the same image even after K8S_HARNESS_IMAGE* is updated.
+      task_definition_arn: resolveHarnessImage(harness_id, env),
       container_port: env.CONTAINER_PORT,
       created_by: identity.user_id,
     },
