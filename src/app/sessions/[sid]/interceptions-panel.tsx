@@ -75,6 +75,91 @@ function countInLastHour(records: VaultInterception[]): number {
   return n;
 }
 
+/**
+ * Render one interception record as one or more <TableRow>s — one row per
+ * swapped credential when there are swaps, or a single "no swap" row when
+ * the request tunneled through unchanged. Pulled out as a module-level
+ * helper so we can reuse the exact same row shape for both the matched
+ * table (top) and the unmatched accordion (bottom).
+ */
+function renderInterceptionRows(
+  rec: VaultInterception,
+  idx: number,
+): React.ReactElement[] {
+  const baseKey = `${rec.timestamp}-${idx}`;
+  if (rec.real_value_fingerprint.length === 0) {
+    return [
+      <TableRow key={baseKey}>
+        <TableCell className="mono text-[11px]">
+          {formatTimestamp(rec.timestamp)}
+        </TableCell>
+        <TableCell>
+          <Badge variant="secondary">{rec.method}</Badge>
+        </TableCell>
+        <TableCell className="mono text-[11px]">{rec.host}</TableCell>
+        <TableCell className="mono text-[11px] break-all">{rec.path}</TableCell>
+        <TableCell colSpan={3}>
+          <span className="text-[11px] text-gray-400 italic">no swap</span>
+        </TableCell>
+      </TableRow>,
+    ];
+  }
+  return rec.real_value_fingerprint.map((fp, fpIdx) => (
+    <TableRow key={`${baseKey}-${fpIdx}`}>
+      <TableCell className="mono text-[11px]">
+        {fpIdx === 0 ? formatTimestamp(rec.timestamp) : ""}
+      </TableCell>
+      <TableCell>
+        {fpIdx === 0 ? <Badge variant="secondary">{rec.method}</Badge> : null}
+      </TableCell>
+      <TableCell className="mono text-[11px]">
+        {fpIdx === 0 ? rec.host : ""}
+      </TableCell>
+      <TableCell className="mono text-[11px] break-all">
+        {fpIdx === 0 ? rec.path : ""}
+      </TableCell>
+      <TableCell>
+        <Badge>{fp.credential}</Badge>
+      </TableCell>
+      <TableCell className="mono text-[11px] break-all">{fp.stub}</TableCell>
+      <TableCell className="mono text-[11px]">
+        {fp.real_tail ? `…${fp.real_tail}` : "…"}
+      </TableCell>
+    </TableRow>
+  ));
+}
+
+/**
+ * Self-contained table renderer for a list of interception records.
+ * Same column shape regardless of whether the records had swaps.
+ */
+function InterceptionsTable({
+  records,
+}: {
+  records: VaultInterception[];
+}): React.ReactElement {
+  return (
+    <div className="rounded border border-gray-200 overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[110px]">Time</TableHead>
+            <TableHead className="w-[70px]">Method</TableHead>
+            <TableHead>Host</TableHead>
+            <TableHead>Path</TableHead>
+            <TableHead>Credential</TableHead>
+            <TableHead>Stub</TableHead>
+            <TableHead className="w-[80px]">Real (…last 2)</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {records.flatMap((rec, idx) => renderInterceptionRows(rec, idx))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
 export function InterceptionsPanel({
   sessionId,
   initialExpanded = false,
@@ -147,6 +232,22 @@ export function InterceptionsPanel({
     });
   }, [records]);
 
+  // Split sorted records into "matched" (had a real stub→real swap) and
+  // "unmatched" (request tunneled through unchanged). The matched group is
+  // the signal the user cares about; unmatched rows live in a collapsed
+  // accordion so they don't drown out the meaningful events. We key off
+  // `stubs_swapped` (the authoritative server-side list) rather than the
+  // fingerprint array, which can be empty even when a swap occurred if the
+  // sidecar elided the real-tail.
+  const matched = useMemo(
+    () => sorted.filter((r) => r.stubs_swapped.length > 0),
+    [sorted],
+  );
+  const unmatched = useMemo(
+    () => sorted.filter((r) => r.stubs_swapped.length === 0),
+    [sorted],
+  );
+
   const lastHour = useMemo(() => countInLastHour(records), [records]);
 
   return (
@@ -207,78 +308,36 @@ export function InterceptionsPanel({
                   </div>
                 </div>
               ) : (
-                <div className="rounded border border-gray-200 overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[110px]">Time</TableHead>
-                        <TableHead className="w-[70px]">Method</TableHead>
-                        <TableHead>Host</TableHead>
-                        <TableHead>Path</TableHead>
-                        <TableHead>Credential</TableHead>
-                        <TableHead>Stub</TableHead>
-                        <TableHead className="w-[80px]">Real (…last 2)</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {sorted.flatMap((rec, idx) => {
-                        const baseKey = `${rec.timestamp}-${idx}`;
-                        // Zero-swap rows still render — they prove the
-                        // request went through vault but didn't need a
-                        // swap. That distinction matters for debugging.
-                        if (rec.real_value_fingerprint.length === 0) {
-                          return [
-                            <TableRow key={baseKey}>
-                              <TableCell className="mono text-[11px]">
-                                {formatTimestamp(rec.timestamp)}
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant="secondary">{rec.method}</Badge>
-                              </TableCell>
-                              <TableCell className="mono text-[11px]">
-                                {rec.host}
-                              </TableCell>
-                              <TableCell className="mono text-[11px] break-all">
-                                {rec.path}
-                              </TableCell>
-                              <TableCell colSpan={3}>
-                                <span className="text-[11px] text-gray-400 italic">
-                                  no swap
-                                </span>
-                              </TableCell>
-                            </TableRow>,
-                          ];
-                        }
-                        return rec.real_value_fingerprint.map((fp, fpIdx) => (
-                          <TableRow key={`${baseKey}-${fpIdx}`}>
-                            <TableCell className="mono text-[11px]">
-                              {fpIdx === 0 ? formatTimestamp(rec.timestamp) : ""}
-                            </TableCell>
-                            <TableCell>
-                              {fpIdx === 0 ? (
-                                <Badge variant="secondary">{rec.method}</Badge>
-                              ) : null}
-                            </TableCell>
-                            <TableCell className="mono text-[11px]">
-                              {fpIdx === 0 ? rec.host : ""}
-                            </TableCell>
-                            <TableCell className="mono text-[11px] break-all">
-                              {fpIdx === 0 ? rec.path : ""}
-                            </TableCell>
-                            <TableCell>
-                              <Badge>{fp.credential}</Badge>
-                            </TableCell>
-                            <TableCell className="mono text-[11px] break-all">
-                              {fp.stub}
-                            </TableCell>
-                            <TableCell className="mono text-[11px]">
-                              {fp.real_tail ? `…${fp.real_tail}` : "…"}
-                            </TableCell>
-                          </TableRow>
-                        ));
-                      })}
-                    </TableBody>
-                  </Table>
+                <div className="flex flex-col gap-3">
+                  {matched.length > 0 ? (
+                    <InterceptionsTable records={matched} />
+                  ) : (
+                    <div className="rounded border border-dashed border-gray-200 px-3 py-3 text-center">
+                      <div className="text-[12px] text-gray-600">
+                        No swaps yet ({unmatched.length} request
+                        {unmatched.length === 1 ? "" : "s"} tunneled through).
+                      </div>
+                    </div>
+                  )}
+                  {unmatched.length > 0 && (
+                    // Native <details> rather than the shadcn Accordion (which
+                    // isn't installed in this repo's `ui/`). Default-closed so
+                    // the matched table stays the primary surface.
+                    <details className="group rounded border border-gray-200 overflow-hidden">
+                      <summary className="cursor-pointer list-none px-3 py-2 bg-gray-50 hover:bg-gray-100 text-[12px] text-gray-700 flex items-center gap-2 select-none">
+                        <ChevronDown
+                          className="w-3 h-3 text-gray-500 shrink-0 transition-transform -rotate-90 group-open:rotate-0"
+                          aria-hidden
+                        />
+                        <span>
+                          Requests with no swaps ({unmatched.length})
+                        </span>
+                      </summary>
+                      <div className="p-2 bg-white">
+                        <InterceptionsTable records={unmatched} />
+                      </div>
+                    </details>
+                  )}
                 </div>
               )}
             </CardContent>
