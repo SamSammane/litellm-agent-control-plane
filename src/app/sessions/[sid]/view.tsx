@@ -868,6 +868,7 @@ function MainPanel({
         <TerminalPanel
           sessionId={session?.id ?? ""}
           harnessId={agent.harness_id}
+          sandboxUrl={session?.sandbox_url ?? null}
         />
       ) : (
       <>
