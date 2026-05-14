@@ -21,6 +21,21 @@ const PORT = Number(process.env.PORT ?? 4096);
 const CMD = process.env.POC_CMD ?? "claude";
 const REPO_DIR = process.env.REPO_DIR ?? process.cwd();
 
+// Route Claude Code through the LiteLLM gateway when the platform passes
+// LITELLM_API_BASE / LITELLM_API_KEY in. The `claude` CLI reads
+// ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN, so rewrite at boot. Mirrors
+// what harnesses/claude-agent-sdk/src/server.ts already does for the SDK.
+if (process.env.LITELLM_API_BASE) {
+  process.env.ANTHROPIC_BASE_URL = process.env.LITELLM_API_BASE.replace(
+    /\/+$/,
+    "",
+  );
+}
+if (process.env.LITELLM_API_KEY) {
+  process.env.ANTHROPIC_AUTH_TOKEN = process.env.LITELLM_API_KEY;
+  process.env.ANTHROPIC_API_KEY = process.env.LITELLM_API_KEY;
+}
+
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js":   "application/javascript; charset=utf-8",
