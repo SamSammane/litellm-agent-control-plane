@@ -52,6 +52,11 @@ import {
   useSdkMessageStream,
   type SdkStreamStatus,
 } from "./sdk-stream";
+import { TerminalPanel } from "./terminal-panel";
+
+// Harnesses whose pod exposes a PTY (xterm.js attaches to it directly)
+// rather than the JSON message API. Add new TUI harness ids here.
+const TUI_HARNESS_IDS = new Set<string>(["claude-code", "codex"]);
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 type LocalRole = "user" | "assistant";
@@ -859,6 +864,13 @@ function MainPanel({
         />
       )}
 
+      {agent && TUI_HARNESS_IDS.has(agent.harness_id) ? (
+        <TerminalPanel
+          sessionId={session?.id ?? ""}
+          harnessId={agent.harness_id}
+        />
+      ) : (
+      <>
       {/* Scrollable thread */}
       <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto">
         <div className="max-w-[720px] mx-auto w-full py-10 px-6 flex flex-col gap-6">
@@ -966,6 +978,8 @@ function MainPanel({
           />
         </div>
       </div>
+      </>
+      )}
 
       <SessionDrawer
         open={sessionDrawerOpen}
