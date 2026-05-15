@@ -94,7 +94,7 @@ export default function NewAgentPage() {
       setModel(t.model);
       const parts = [t.prompt, t.skill ? `<!-- skill -->\n\n${skillEdits[t.id] ?? t.skill}` : ""].filter(Boolean);
       setSystemPrompt(parts.join("\n\n"));
-      const templateVars = Object.entries(t.env_vars);
+      const templateVars = Object.entries(t.env_vars).filter(([k]) => !k.startsWith("LAP_FILE_"));
       setEnvVars(templateVars.length > 0 ? templateVars : [["", ""]]);
     } else {
       // blank
@@ -901,12 +901,15 @@ export default function NewAgentPage() {
                     {selectedTemplate.files.length > 0 && (
                       <div>
                         <p className="mb-1.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">Files</p>
-                        <div className="space-y-1">
+                        <div className="space-y-3">
                           {selectedTemplate.files.map((f) => (
-                            <div key={f.template_path} className="flex items-center gap-2 font-mono text-[12px]">
-                              <span className="rounded border border-border bg-muted px-2 py-0.5">{f.template_path}</span>
-                              <span className="text-muted-foreground">→</span>
-                              <span className="text-muted-foreground">{f.sandbox_path}</span>
+                            <div key={f.template_path}>
+                              <div className="mb-1 flex items-center gap-2 font-mono text-[12px]">
+                                <span className="rounded border border-border bg-muted px-2 py-0.5">{f.template_path}</span>
+                                <span className="text-muted-foreground">→</span>
+                                <span className="text-muted-foreground">{f.sandbox_path}</span>
+                              </div>
+                              <pre className="overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-[11px] text-foreground">{f.content}</pre>
                             </div>
                           ))}
                         </div>

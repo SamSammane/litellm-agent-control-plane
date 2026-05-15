@@ -17,6 +17,8 @@ import { join } from "node:path";
 export interface TemplateFile {
   template_path: string;
   sandbox_path: string;
+  /** Decoded file content — for UI preview only, not sent to the agent. */
+  content: string;
 }
 
 export interface AgentTemplate {
@@ -59,24 +61,30 @@ const ROOT = process.cwd();
 const JSON_FILE = join(ROOT, "agent_templates.json");
 const DIR_ROOT = join(ROOT, "agent-templates");
 
-function encodeFiles(base: string, files: TemplateFile[]): Record<string, string> {
-  const vars: Record<string, string> = {};
-  files.forEach(({ template_path, sandbox_path }, i) => {
+function readFiles(base: string, rawFiles: Omit<TemplateFile, "content">[]): {
+  files: TemplateFile[];
+  env_vars: Record<string, string>;
+} {
+  const files: TemplateFile[] = [];
+  const env_vars: Record<string, string> = {};
+  rawFiles.forEach(({ template_path, sandbox_path }, i) => {
     try {
-      const content = readFileSync(join(base, template_path));
-      vars[`LAP_FILE_${i}_DEST`] = sandbox_path;
-      vars[`LAP_FILE_${i}_CONTENT`] = content.toString("base64");
+      const buf = readFileSync(join(base, template_path));
+      files.push({ template_path, sandbox_path, content: buf.toString("utf8") });
+      env_vars[`LAP_FILE_${i}_DEST`] = sandbox_path;
+      env_vars[`LAP_FILE_${i}_CONTENT`] = buf.toString("base64");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[templates] could not read file ${template_path}: ${msg}`);
     }
   });
-  return vars;
+  return { files, env_vars };
 }
 
 function fromRaw(raw: RawTemplate, base?: string): AgentTemplate {
-  const files = raw.files ?? [];
-  const fileVars = base ? encodeFiles(base, files) : {};
+  const { files, env_vars: fileVars } = base
+    ? readFiles(base, raw.files ?? [])
+    : { files: [], env_vars: {} };
   return {
     id: raw.id,
     name: raw.name,

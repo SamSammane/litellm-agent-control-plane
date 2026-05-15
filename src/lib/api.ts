@@ -1094,6 +1094,7 @@ export function getAdminStats(): Promise<AdminStats> {
 export interface TemplateFile {
   template_path: string;
   sandbox_path: string;
+  content: string;
 }
 
 export interface AgentTemplate {
