@@ -2,8 +2,10 @@
 // lap — LiteLLM Agent Platform CLI
 //
 // Usage:
+//   lap <agent-name>                open the agent's TUI in a sandbox
+//   lap --agent <name>              same as above (flag form)
+//   lap agents                      list agents on the platform
 //   lap login                       set base URL + master key (one-time)
-//   lap claude --agent <name>       open a Claude Code TUI session
 //   lap config                      show current config
 //   lap logout                      delete config
 //
@@ -67,9 +69,23 @@ async function login() {
   return { base, key };
 }
 
-async function claudeCmd(args) {
-  const m = args.indexOf("--agent");
-  const wanted = m >= 0 ? args[m + 1] : "refactor-bot";
+async function openAgent(args) {
+  // Accept `lap <name>`, `lap --agent <name>`, or `lap` (prompts).
+  // The agent's harness_id determines what CLI runs inside the sandbox
+  // (claude-code, codex, …) — the user doesn't need to say.
+  const flagIdx = args.indexOf("--agent");
+  let wanted = "";
+  if (flagIdx >= 0) {
+    wanted = args[flagIdx + 1] ?? "";
+  } else {
+    const positional = args.find(a => !a.startsWith("-"));
+    if (positional) wanted = positional;
+  }
+  if (!wanted) {
+    console.error("  usage: lap <agent-name>  (or `lap --agent <name>`)");
+    console.error("  list:  lap agents");
+    process.exit(2);
+  }
 
   let cfg = loadConfig();
   if (!cfg) {
@@ -121,14 +137,44 @@ async function claudeCmd(args) {
 
   process.stdout.write("  \x1b[2mwaiting for sandbox\x1b[0m");
   let session = null;
+  // Network blips shouldn't abort the poll, but server-side errors (401,
+  // 4xx auth, 5xx outage) should surface fast. We tolerate up to two
+  // consecutive failures and then bail with the upstream status so the
+  // user isn't waiting out the full 60-iteration timeout to see a 401.
+  let consecutiveFailures = 0;
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 1500));
+    let r;
     try {
-      const r = await fetch(`${cfg.base}/api/v1/managed_agents/sessions/${sid}`, {
+      r = await fetch(`${cfg.base}/api/v1/managed_agents/sessions/${sid}`, {
         headers: { "authorization": `Bearer ${cfg.key}` },
       });
-      session = await r.json();
-    } catch {}
+    } catch (e) {
+      consecutiveFailures++;
+      if (consecutiveFailures >= 3) {
+        console.error(`\n  \x1b[31m✗ session poll failed: ${e.message}\x1b[0m`);
+        process.exit(1);
+      }
+      process.stdout.write("?");
+      continue;
+    }
+    if (!r.ok) {
+      // Auth errors are terminal — re-polling won't fix a wrong master key.
+      if (r.status === 401 || r.status === 403) {
+        console.error(`\n  \x1b[31m✗ session poll: ${r.status} ${r.statusText} (master key invalid?)\x1b[0m`);
+        process.exit(1);
+      }
+      consecutiveFailures++;
+      if (consecutiveFailures >= 3) {
+        const body = await r.text().catch(() => "");
+        console.error(`\n  \x1b[31m✗ session poll: ${r.status} ${r.statusText} ${body.slice(0, 120)}\x1b[0m`);
+        process.exit(1);
+      }
+      process.stdout.write("?");
+      continue;
+    }
+    consecutiveFailures = 0;
+    session = await r.json().catch(() => null);
     process.stdout.write(".");
     if (session?.status === "ready") break;
     if (session?.status === "failed" || session?.status === "dead") {
@@ -137,7 +183,7 @@ async function claudeCmd(args) {
     }
   }
   if (session?.status !== "ready") {
-    console.error("\n  \x1b[31m✗ timed out\x1b[0m");
+    console.error("\n  \x1b[31m✗ timed out waiting for ready\x1b[0m");
     process.exit(1);
   }
   process.stdout.write(" \x1b[32mready\x1b[0m\n");
@@ -155,22 +201,30 @@ async function claudeCmd(args) {
   }
   // The harness's verifyClient requires the bearer token; the platform
   // returns it via session.tty_token (preferred) or via LAP_TTY_TOKEN env.
+  // We send it as a request header (not a query param) so the token doesn't
+  // end up in ingress / proxy / load-balancer access logs that record the
+  // request line. The harness accepts both forms; we use the header form
+  // from Node where it's available.
   const ttyToken = session.tty_token || process.env.LAP_TTY_TOKEN || "";
-  if (ttyToken) {
-    const sep = wsUrl.includes("?") ? "&" : "?";
-    wsUrl = `${wsUrl}${sep}token=${encodeURIComponent(ttyToken)}`;
-  }
-  const safeWs = wsUrl.replace(/([?&])token=[^&]*/, "$1token=…");
-  console.log(`  \x1b[2m→ attaching local TTY to ${safeWs}\x1b[0m`);
+  console.log(`  \x1b[2m→ attaching local TTY to ${wsUrl}\x1b[0m`);
   console.log("  \x1b[2m(press Ctrl-D to detach)\x1b[0m\n");
 
-  await attachPty(wsUrl);
+  await attachPty(wsUrl, ttyToken);
 }
 
-function attachPty(wsUrl) {
+function attachPty(wsUrl, ttyToken) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = "arraybuffer";
+    // Pass the bearer token via the Authorization header — keeps it out of
+    // access logs that record the request line. Node's `ws` package
+    // supports header injection on the upgrade handshake; the browser
+    // WebSocket API does not, which is why the harness accepts ?token= too
+    // for browser callers.
+    const headers = ttyToken ? { authorization: `Bearer ${ttyToken}` } : undefined;
+    const ws = new WebSocket(wsUrl, { headers });
+    // Default binaryType ("nodebuffer") yields Buffer in the message event,
+    // which process.stdout.write accepts directly. Setting "arraybuffer"
+    // would crash on every binary PTY frame because stdout.write rejects
+    // ArrayBuffer.
 
     ws.on("open", () => {
       if (process.stdin.isTTY) {
@@ -223,23 +277,51 @@ function attachPty(wsUrl) {
 
 function help() {
   console.log(`
-  \x1b[1mlap\x1b[0m — agent platform CLI
+  \x1b[1mlap\x1b[0m — LiteLLM Agent Platform CLI
 
   \x1b[2mUSAGE\x1b[0m
+    lap <agent-name>                open the agent's TUI in a sandbox
+    lap --agent <name>              same as above (flag form)
+    lap agents                      list agents on the platform
     lap login                       set base URL + master key (one-time)
-    lap claude --agent <name>       open a Claude Code session
     lap config                      show current config
     lap logout                      delete config
+
+  \x1b[2mEXAMPLE\x1b[0m
+    lap login
+    lap refactor-bot
 
   Config:  ${CONFIG}
 `);
 }
 
+async function agentsCmd() {
+  const cfg = loadConfig();
+  if (!cfg) { console.error("  (no config — run `lap login`)"); process.exit(1); }
+  const r = await fetch(`${cfg.base}/api/v1/managed_agents/agents`, {
+    headers: { "authorization": `Bearer ${cfg.key}` },
+  });
+  if (!r.ok) { console.error(`  ✗ ${r.status} ${r.statusText}`); process.exit(1); }
+  const { data } = await r.json();
+  for (const a of data) {
+    const name = (a.name ?? "<unnamed>").padEnd(28);
+    const harness = (a.harness_id ?? "?").padEnd(20);
+    console.log(`  ${name} \x1b[2m${harness} ${a.id.slice(0,8)}\x1b[0m`);
+  }
+}
+
 async function main() {
-  const [, , cmd, ...rest] = process.argv;
+  const [, , ...args] = process.argv;
+  const cmd = args[0];
+  // Subcommands are reserved keywords. Anything else is treated as an agent
+  // name shorthand for `lap --agent <name>`.
   switch (cmd) {
+    case undefined:
+    case "-h":
+    case "--help":
+    case "help":   help(); break;
     case "login":  await login(); break;
-    case "claude": await claudeCmd(rest); break;
+    case "agents": await agentsCmd(); break;
     case "config": {
       const c = loadConfig();
       if (!c) console.log("  (no config — run `lap login`)");
@@ -247,7 +329,7 @@ async function main() {
       break;
     }
     case "logout": try { fs.rmSync(CONFIG, { force: true }); console.log("  logged out"); } catch {} break;
-    default: help();
+    default: await openAgent(args);
   }
 }
 
