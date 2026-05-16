@@ -1,6 +1,6 @@
 // Minimal bridge: serves a static xterm.js page on /, accepts WebSocket
 // upgrades on /tty, and pipes bytes between the browser terminal and a
-// real PTY running the configured command (default: `claude`).
+// real PTY running the configured command (default: `codex`).
 //
 // Protocol on /tty:
 //   browser -> server : raw text (keystrokes)  OR  JSON {"type":"resize","cols":N,"rows":M}
@@ -38,7 +38,7 @@ const MIME = {
   ".svg":  "image/svg+xml",
   ".ico":  "image/x-icon",
 };
-const CMD = process.env.POC_CMD ?? "claude";
+const CMD = process.env.POC_CMD ?? "codex";
 const REPO_DIR = process.env.REPO_DIR ?? process.cwd();
 
 // Auth token. Empty → fail-closed: all auth-gated requests are rejected.
