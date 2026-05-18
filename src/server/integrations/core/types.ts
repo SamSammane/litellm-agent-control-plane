@@ -122,6 +122,21 @@ export type IntegrationEvent =
     }
   | { kind: "followup"; external_session_id: string; body: string }
   | { kind: "cancel"; external_session_id: string }
+  /**
+   * Messaging-style mediums (Slack, Discord, …) can't tell from the webhook
+   * payload alone whether this is the first message in a conversation or a
+   * follow-up — they need an IntegrationSession lookup to decide. The
+   * dispatcher resolves that ambiguity: it treats `message` as a follow-up
+   * when an IntegrationSession exists for `external_session_id` and the
+   * underlying LAP session is still ready + within its idle window;
+   * otherwise it treats it as a new_task.
+   */
+  | {
+      kind: "message";
+      external_session_id: string;
+      prompt: string;
+      external_ref?: string;
+    }
   | { kind: "ignore" };
 
 /**
