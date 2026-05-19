@@ -11,7 +11,13 @@ export function buildScreenshotMcpServer(): McpSdkServerConfigWithInstance {
     "screenshot_url",
     "Capture a screenshot of any URL accessible in the sandbox (e.g. Jaeger UI at http://localhost:16686, LiteLLM proxy UI). Returns the screenshot as an image. Also saves PNG to /tmp/screenshots/ for committing to the repo as proof.",
     z.object({
-      url: z.string().describe("URL to screenshot"),
+      url: z
+        .string()
+        .url()
+        .refine((u) => /^https?:$/.test(new URL(u).protocol), {
+          message: "Only http(s) URLs are supported (file://, data:, ftp://, etc. are rejected)",
+        })
+        .describe("URL to screenshot (http or https only)"),
       wait_ms: z
         .number()
         .optional()
