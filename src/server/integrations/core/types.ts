@@ -109,7 +109,17 @@ export interface SessionEventContext {
   /** The medium's session id — e.g. Linear's agentSession.id. */
   externalSessionId: string;
   event: SessionEvent;
-  agent: Agent;
+  /**
+   * Resolved agent bound to this install. Set whenever the dispatcher has
+   * already done the `agentIntegrationBinding` lookup before emitting the
+   * event — the common case for `thought`, `response`, `error`, etc.
+   *
+   * Undefined for events fired BEFORE the binding lookup, currently only
+   * the immediate `react` ack on the Slack message path. Providers that
+   * use `ctx.agent` must guard the field — typically by `event.type`-
+   * switching on event types that aren't fired pre-binding.
+   */
+  agent?: Agent;
 }
 
 // ============================================================================
