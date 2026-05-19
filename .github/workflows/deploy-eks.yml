@@ -145,12 +145,14 @@ jobs:
 
       - name: Verify server-proxy.mjs in image
         run: |
-          actual=$(docker run --rm "$IMAGE" node -e "console.log(require('fs').readFileSync('/app/server-proxy.mjs','utf8').split('\n')[21])")
-          expected=$(sed -n '22p' server-proxy.mjs)
-          echo "expected line 22: $expected"
-          echo "actual   line 22: $actual"
-          if [ "$actual" != "$expected" ]; then
+          # Compute sha256 of source and image copies — any mismatch aborts before push.
+          src_hash=$(sha256sum server-proxy.mjs | awk '{print $1}')
+          img_hash=$(docker run --rm "$IMAGE" sh -c "sha256sum /app/server-proxy.mjs | awk '{print \$1}'")
+          echo "source sha256: $src_hash"
+          echo "image  sha256: $img_hash"
+          if [ "$src_hash" != "$img_hash" ]; then
             echo "ERROR: server-proxy.mjs in image does not match source — aborting"
+            docker run --rm "$IMAGE" head -5 /app/server-proxy.mjs
             exit 1
           fi
           echo "OK: server-proxy.mjs verified"
