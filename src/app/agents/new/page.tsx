@@ -70,7 +70,7 @@ export default function NewAgentPage() {
     listTemplates().then(setTemplates).catch(() => {});
   }, []);
 
-  // Sandbox templates (repo + env var keys) from localStorage
+  // Projects (repo + env var keys) from localStorage
   const [projects, setProjects] = useState<LocalProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 

@@ -176,7 +176,7 @@ export default function ProjectsPage() {
 
   useEffect(() => { setProjects(loadLocalProjects()); }, []);
 
-  function deleteTemplate(id: string) {
+  function deleteProject(id: string) {
     setProjects((prev) => {
       const next = prev.filter((t) => t.id !== id);
       saveLocalProjects(next);
@@ -216,7 +216,7 @@ export default function ProjectsPage() {
             <ProjectCard
               key={t.id}
               project={t}
-              onDelete={() => deleteTemplate(t.id)}
+              onDelete={() => deleteProject(t.id)}
             />
           ))}
         </div>
