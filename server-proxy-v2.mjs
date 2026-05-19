@@ -23,8 +23,13 @@ import { connect } from "net";
 import { createServer as createHttpServer, request as httpRequest } from "http";
 import { spawn } from "child_process";
 import { createRequire } from "module";
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, createHash } from "crypto";
 import { URL } from "url";
+
+const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+function wsAccept(key) {
+  return createHash("sha1").update(key + WS_GUID).digest("base64");
+}
 
 const require = createRequire(import.meta.url);
 
@@ -292,22 +297,35 @@ function createProxy() {
         const hHost = parsed.hostname;
         const hPort = parseInt(parsed.port || "80", 10);
         console.log(`[tty-proxy] proxying tty session=${sessionId} → ${hHost}:${hPort}${ttyPath}`);
+        // Use the client's real WS key so Sec-WebSocket-Accept verifies correctly.
+        // ALB may have stripped Sec-WebSocket-Key; fall back to a default and
+        // recompute the accept value ourselves so the client can verify it.
+        const clientKey = req.headers["sec-websocket-key"] ?? "dGhlIHNhbXBsZSBub25jZQ==";
         const proxyReq = httpRequest({
           hostname: hHost, port: hPort, path: ttyPath, method: "GET",
           headers: {
             host: `${hHost}:${hPort}`,
             upgrade: "websocket", connection: "upgrade",
-            "sec-websocket-key": req.headers["sec-websocket-key"] ?? "dGhlIHNhbXBsZSBub25jZQ==",
+            "sec-websocket-key": clientKey,
             "sec-websocket-version": req.headers["sec-websocket-version"] ?? "13",
           },
         });
         proxyReq.on("upgrade", (proxyRes, proxySocket, proxyHead) => {
           console.log(`[tty-proxy] 101 session=${sessionId}`);
           const clientSocket = req.socket;
+          // Remove error handler BEFORE taking the socket so it can't write 502
+          // to a socket that's mid-WS-handshake.
+          proxyReq.removeAllListeners("error");
           clientSocket.removeAllListeners();
-          let header = "HTTP/1.1 101 Switching Protocols\r\n";
-          for (const [k, v] of Object.entries(proxyRes.headers)) header += `${k}: ${v}\r\n`;
-          header += "\r\n";
+          // Build 101 response: compute Sec-WebSocket-Accept from the client's
+          // actual key so the ws library can verify it even if ALB mangled it.
+          const accept = wsAccept(clientKey);
+          const header = [
+            "HTTP/1.1 101 Switching Protocols",
+            "Upgrade: websocket",
+            "Connection: Upgrade",
+            `Sec-WebSocket-Accept: ${accept}`,
+          ].join("\r\n") + "\r\n\r\n";
           clientSocket.write(header);
           if (proxyHead?.length > 0) clientSocket.write(proxyHead);
           proxySocket.pipe(clientSocket);
