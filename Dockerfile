@@ -123,12 +123,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/agent-templates ./agent-templates
 # builds producing the correct content in the local BuildKit CAS.)
 ARG GIT_SHA=unknown
 ARG SERVER_PROXY_SHA256=unknown
-RUN --mount=type=bind,source=server-proxy.mjs,target=/tmp/server-proxy-src.mjs \
-    echo "baking server-proxy.mjs from commit $GIT_SHA" && \
-    cp /tmp/server-proxy-src.mjs /app/server-proxy.mjs && \
-    chown nextjs:nodejs /app/server-proxy.mjs && \
-    actual=$(sha256sum /app/server-proxy.mjs | awk '{print $1}') && \
-    echo "server-proxy.mjs sha256: $actual" && \
+RUN --mount=type=bind,source=server-proxy-v2.mjs,target=/tmp/server-proxy-src.mjs \
+    echo "baking server-proxy-v2.mjs from commit $GIT_SHA" && \
+    cp /tmp/server-proxy-src.mjs /app/server-proxy-v2.mjs && \
+    chown nextjs:nodejs /app/server-proxy-v2.mjs && \
+    actual=$(sha256sum /app/server-proxy-v2.mjs | awk '{print $1}') && \
+    echo "server-proxy-v2.mjs sha256: $actual" && \
     [ "$SERVER_PROXY_SHA256" = "unknown" ] || \
     [ "$actual" = "$SERVER_PROXY_SHA256" ] || \
     (echo "FATAL: hash mismatch — expected $SERVER_PROXY_SHA256 got $actual" && exit 1)
@@ -142,4 +142,4 @@ EXPOSE 3000
 #   upgrades for /api/v1/managed_agents/sessions/*/tty and pipes them to
 #   the sandbox pod; all other traffic is forwarded to Next.js.
 # Not IN_CLUSTER: run Next.js standalone directly (local dev / no proxy needed).
-CMD ["sh", "-c", "DATABASE_URL=\"${DATABASE_URL}&connection_limit=1&connect_timeout=30\" node node_modules/prisma/build/index.js db push --accept-data-loss --skip-generate && if [ \"${IN_CLUSTER}\" = \"true\" ]; then node server-proxy.mjs; else node server.js; fi"]
+CMD ["sh", "-c", "DATABASE_URL=\"${DATABASE_URL}&connection_limit=1&connect_timeout=30\" node node_modules/prisma/build/index.js db push --accept-data-loss --skip-generate && if [ \"${IN_CLUSTER}\" = \"true\" ]; then node server-proxy-v2.mjs; else node server.js; fi"]
