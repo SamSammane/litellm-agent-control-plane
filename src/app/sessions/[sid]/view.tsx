@@ -503,7 +503,7 @@ export default function SessionThreadView() {
         permissions={thread.permissions}
         onRespondPermission={thread.respondPermission}
         loading={loading}
-        error={error}
+        error={error ?? thread.error ?? null}
         setError={setError}
         hasInProgress={hasInProgress}
         currentModel={currentModel}
