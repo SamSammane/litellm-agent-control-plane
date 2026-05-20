@@ -31,7 +31,7 @@
 
 import { prisma } from "@/server/db";
 import { env } from "@/server/env";
-import { createOpencodeClient } from "@opencode-ai/sdk";
+import { createOpencodeClient } from "@opencode-ai/sdk/client";
 
 import {
   applyEvent,
