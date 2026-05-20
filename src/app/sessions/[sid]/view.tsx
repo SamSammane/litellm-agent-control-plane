@@ -68,17 +68,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  SdkStreamPanel,
-  useSdkMessageStream,
-  type SdkStreamStatus,
-} from "./sdk-stream";
+import { useSdkMessageStream } from "./sdk-stream";
 import { TerminalPanel } from "./terminal-panel";
+import { SessionSidebar, extractLatestTasks } from "./session-sidebar";
 
 // Harnesses whose pod exposes a PTY (xterm.js attaches to it directly)
 // rather than the JSON message API. Add new TUI harness ids here.
 const TUI_HARNESS_IDS = new Set<string>(["claude-code", "codex"]);
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 type LocalRole = "user" | "assistant";
 
@@ -309,15 +305,16 @@ export default function SessionThreadView() {
     return "";
   }, [session, agent]);
 
-  // Subscribe to the session-wide SSE while the harness is up. The hook
-  // accumulates SDKMessage[] in local state but `SdkStreamPanel` is not
-  // rendered today — we use the array length only as a "new harness event"
-  // signal to drive `refreshThread()` below. This is what makes
-  // externally-triggered turns (Slack webhook → /message → harness bus)
-  // paint on the open tab without waiting for the 5s poll cycle.
+  // Subscribe to the session-wide SSE while the harness is up. We use the
+  // accumulated message count only as a "new harness event" signal to drive
+  // `refreshThread()` below — the raw SDK stream is never rendered. This is
+  // what makes externally-triggered turns (Slack webhook → /message → harness
+  // bus) paint on the open tab without waiting for the 5s poll cycle.
   const sdkStreamEnabled = !!sessionId && session?.status === "ready";
-  const { messages: sdkMessages, status: sdkStreamStatus } =
-    useSdkMessageStream(sessionId, sdkStreamEnabled);
+  const { messages: sdkMessages } = useSdkMessageStream(
+    sessionId,
+    sdkStreamEnabled,
+  );
   const lastSdkLenRef = useRef(0);
 
   // Pull the full opencode thread and replace local state. Source of truth
@@ -731,6 +728,12 @@ export default function SessionThreadView() {
   // flex-child aside that shrinks the chat column).
   const [vaultOpen, setVaultOpen] = useState(false);
 
+  // Tasks panel is driven entirely by the agent's latest plan-tool call.
+  const sessionTasks = useMemo(
+    () => extractLatestTasks(messages.map((m) => m.parts)),
+    [messages],
+  );
+
   return (
     <div className="sessions-app flex w-full h-full bg-background text-foreground overflow-hidden">
       <MainPanel
@@ -738,8 +741,6 @@ export default function SessionThreadView() {
         agent={agent}
         agentName={currentAgentName}
         messages={messages}
-        sdkMessages={sdkMessages}
-        sdkStreamStatus={sdkStreamStatus}
         loading={loading}
         error={error}
         setError={setError}
@@ -761,6 +762,7 @@ export default function SessionThreadView() {
         vaultOpen={vaultOpen}
         setVaultOpen={setVaultOpen}
       />
+      <SessionSidebar tasks={sessionTasks} />
       <VaultPanel
         open={vaultOpen}
         onClose={() => setVaultOpen(false)}
@@ -784,8 +786,6 @@ interface MainPanelProps {
   agent: AgentRow | null;
   agentName: string;
   messages: LocalMessage[];
-  sdkMessages: SDKMessage[];
-  sdkStreamStatus: SdkStreamStatus;
   loading: boolean;
   error: string | null;
   setError: (s: string | null) => void;
@@ -813,8 +813,6 @@ function MainPanel({
   agent,
   agentName,
   messages,
-  sdkMessages,
-  sdkStreamStatus,
   loading,
   error,
   setError,
@@ -1119,18 +1117,6 @@ function MainPanel({
                 {deleteSessionError}
               </div>
             </div>
-          )}
-
-          {/*
-            Live SDKMessage stream from the harness's new
-            `claude_sdk_message` envelope. Shown only when no user-initiated
-            send is in flight (hasInProgress) — that path already streams
-            thinking via message.part.delta deltas into the legacy thread.
-            For external/webhook turns, this panel surfaces tool calls and
-            thinking live without waiting for refreshThread() to complete.
-          */}
-          {!hasInProgress && sdkStreamStatus === "streaming" && (
-            <SdkStreamPanel messages={sdkMessages} status={sdkStreamStatus} />
           )}
 
           {messages.map((m, i) => (
@@ -1629,6 +1615,10 @@ function AssistantBlock({ msg }: { msg: LocalMessage }) {
     );
   });
 
+  const segments = segmentParts(visibleParts);
+  const lastToolSegIdx = lastToolSegmentIndex(segments);
+  const hasToolGroup = lastToolSegIdx !== -1;
+
   // Lets the assistant block grow to fit its content. The parent thread
   // container is the single scroll surface — see the matching change on
   // UserPromptBlock for why we dropped the per-bubble overflow-y-auto.
@@ -1662,18 +1652,103 @@ function AssistantBlock({ msg }: { msg: LocalMessage }) {
           </div>
         )
       ) : (
-        visibleParts.map((p, i) => (
-          <PartBlock key={i} part={p} />
-        ))
+        renderSegments(segments, lastToolSegIdx, inProgress ? undefined : msg.latency_ms)
       )}
 
       {failed && msg.error && (
         <div className="mono text-[11px] text-red-700">{msg.error}</div>
       )}
 
-      {!inProgress && !failed && typeof msg.latency_ms === "number" && (
+      {!inProgress && !failed && !hasToolGroup && typeof msg.latency_ms === "number" && (
         <div className="mono text-[11px] text-muted-foreground">
           {formatLatency(msg.latency_ms)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Adjacent tool parts collapse into a single "Worked for X · N tool calls"
+// bar instead of rendering one bordered box per call. Non-tool parts (text,
+// thinking, reasoning, image) render inline in order. The message latency is
+// folded into the *last* tool group's header so it reads as a work summary;
+// when a message has no tool calls the standalone latency footer is kept.
+type AssistantSegment =
+  | { kind: "part"; part: HarnessMessagePart }
+  | { kind: "tools"; parts: HarnessMessagePart[] };
+
+function segmentParts(parts: HarnessMessagePart[]): AssistantSegment[] {
+  const segments: AssistantSegment[] = [];
+  for (const part of parts) {
+    const isTool = (typeof part?.type === "string" ? part.type : "") === "tool";
+    if (isTool) {
+      const last = segments[segments.length - 1];
+      if (last && last.kind === "tools") last.parts.push(part);
+      else segments.push({ kind: "tools", parts: [part] });
+    } else {
+      segments.push({ kind: "part", part });
+    }
+  }
+  return segments;
+}
+
+function lastToolSegmentIndex(segments: AssistantSegment[]): number {
+  for (let i = segments.length - 1; i >= 0; i--) {
+    if (segments[i].kind === "tools") return i;
+  }
+  return -1;
+}
+
+function renderSegments(
+  segments: AssistantSegment[],
+  lastToolSegIdx: number,
+  latencyMs?: number,
+): React.ReactNode {
+  return segments.map((seg, i) =>
+    seg.kind === "tools" ? (
+      <WorkBar
+        key={i}
+        parts={seg.parts}
+        durationMs={i === lastToolSegIdx ? latencyMs : undefined}
+      />
+    ) : (
+      <PartBlock key={i} part={seg.part} />
+    ),
+  );
+}
+
+function WorkBar({
+  parts,
+  durationMs,
+}: {
+  parts: HarnessMessagePart[];
+  durationMs?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const n = parts.length;
+  const calls = `${n} tool call${n === 1 ? "" : "s"}`;
+  const label =
+    typeof durationMs === "number"
+      ? `Worked for ${formatLatency(durationMs)} · ${calls}`
+      : calls;
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex w-fit items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+      >
+        <ChevronDown
+          className={`w-3 h-3 transition-transform ${open ? "" : "-rotate-90"}`}
+        />
+        <Wrench className="w-3 h-3" />
+        <span>{label}</span>
+      </button>
+      {open && (
+        <div className="ml-1 flex flex-col gap-2 border-l-2 border-border/60 pl-3">
+          {parts.map((p, i) => (
+            <ToolBlock key={i} part={p} />
+          ))}
         </div>
       )}
     </div>
