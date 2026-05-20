@@ -325,11 +325,23 @@ export default function SessionThreadView() {
   // segment so steps accumulate instead of overwriting each other.
   const liveTurns = useMemo<LocalMessage[]>(() => {
     if (sdkMessages.length === 0) return [];
+    const folded = foldSdkMessages(sdkMessages);
     const out: LocalMessage[] = [];
-    foldSdkMessages(sdkMessages).forEach((f, i) => {
+    folded.forEach((f, i) => {
       if (f.type !== "assistant") return;
-      const content = ((f as { message?: { content?: unknown } }).message
-        ?.content ?? []) as Array<{ type: string; [k: string]: unknown }>;
+      const msg = (f as { message?: { id?: unknown; content?: unknown } })
+        .message;
+      // Each finished step yields TWO folded entries: the rolling copy built
+      // from stream_event deltas (flushed at message_stop, no `id`) and the
+      // harness's final complete assistant message (has `id`) — same content.
+      // Render the complete one; render a rolling one only when it's the last
+      // entry (the still-in-flight turn that has no complete copy yet).
+      const hasId = typeof msg?.id === "string";
+      if (!hasId && i !== folded.length - 1) return;
+      const content = (msg?.content ?? []) as Array<{
+        type: string;
+        [k: string]: unknown;
+      }>;
       const parts = foldedAssistantToParts(content);
       if (parts.length === 0) return;
       out.push({ id: `__live_${i}`, role: "assistant", status: "completed", parts });
