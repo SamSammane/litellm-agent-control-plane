@@ -109,7 +109,40 @@ kubectl apply -f k8s/rbac-platform.yaml
 
 Creates ServiceAccount `litellm-platform` with a long-lived token Secret and Role/ClusterRole for all K8s operations the platform needs.
 
-### 6. Application secrets
+### 6. Build and push harness images
+
+Every harness (`claude-code`, `claude-agent-sdk`, `opencode`, `codex`,
+`hermes`, `gemini`) has its own container image that runs inside each sandbox
+pod. All harnesses share a common base image that must be built first.
+
+```bash
+REGISTRY=<your-account-id>.dkr.ecr.<region>.amazonaws.com/litellm-agent-platform
+
+# Authenticate Docker to ECR
+aws ecr get-login-password --region <region> | \
+  docker login --username AWS --password-stdin "$REGISTRY"
+
+# 1. Build the shared base image (never pushed — local build dep only)
+docker build -f harnesses/base/Dockerfile -t harnesses/base:dev .
+
+# 2. Build and push each harness
+for HARNESS in claude-code claude-agent-sdk opencode codex hermes gemini; do
+  IMG="$REGISTRY:harness-${HARNESS}-latest"
+  docker buildx build -f harnesses/${HARNESS}/Dockerfile -t "$IMG" .
+  docker push "$IMG"
+  echo "pushed $IMG"
+done
+```
+
+> **Note:** `harnesses/base:dev` must exist in the local Docker daemon before
+> any harness build — the harness Dockerfiles all start with
+> `FROM harnesses/base:dev`. It is never pushed to ECR; it's a local
+> build-time dependency only.
+
+After initial setup, CI handles this automatically on every push to `main`
+via `.github/workflows/deploy-eks.yml`.
+
+### 7. Application secrets
 
 ```bash
 # Copy k8s/secrets.yaml, fill in real values, apply — never commit with values
@@ -126,14 +159,21 @@ Required keys in the `litellm-env` Secret:
 | `DATABASE_URL` | Neon Postgres connection string |
 | `LITELLM_API_KEY` | LiteLLM gateway key |
 | `LITELLM_API_BASE` | LiteLLM gateway URL |
-| `K8S_HARNESS_IMAGE` | ECR URI for sandbox harness image |
+| `K8S_HARNESS_IMAGE_CLAUDE_CODE` | ECR URI for `claude-code` harness image |
+| `K8S_HARNESS_IMAGE_CLAUDE_SDK` | ECR URI for `claude-agent-sdk` harness image |
+| `K8S_HARNESS_IMAGE_OPENCODE` | ECR URI for `opencode` harness image |
+| `K8S_HARNESS_IMAGE_CODEX` | ECR URI for `codex` harness image |
+| `K8S_HARNESS_IMAGE_HERMES` | ECR URI for `hermes` harness image |
+| `K8S_HARNESS_IMAGE_GEMINI` | ECR URI for `gemini` harness image |
 | `WARM_POOL_SIZE` | Number of pre-warmed sandbox pods (e.g. `6`) |
 | `K8S_NODEPORT_MIN` | NodePort range start (e.g. `30000`) |
 | `K8S_NODEPORT_MAX` | NodePort range end (e.g. `30099`) |
 
-All other keys in the Secret are optional or have defaults.
+`K8S_HARNESS_IMAGE` (singular) is still accepted as a fallback for all
+harnesses if the per-harness keys are not set. All other keys are optional or
+have defaults.
 
-### 7. GitHub repository secrets
+### 8. GitHub repository secrets
 
 ```
 AWS_ROLE_ARN    = arn:aws:iam::888602223428:role/litellm-github-actions
@@ -144,7 +184,7 @@ EKS_CLUSTER_NAME = litellm-agents
 
 Set via: `gh secret set <KEY> --body "<VALUE>" --repo BerriAI/litellm-agent-platform`
 
-### 8. Initial deploy
+### 9. Initial deploy
 
 ```bash
 # First deploy: use kubectl apply directly
