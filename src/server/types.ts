@@ -17,6 +17,7 @@ import { z } from "zod";
 import { decrypt, encrypt } from "@/server/integrations/core/crypto";
 import type { SessionOrigin } from "@/server/integrations/core/origin";
 import { parseAttachedSkillIds } from "@/server/skill-prompt";
+import { getTemplate } from "@/server/templates";
 
 // ============================================================================
 // DB row types (re-export from Prisma, do not redefine)
@@ -137,6 +138,14 @@ export const CreateAgentBody = z.object({
       (files) => (files as SandboxFileSpec[]).reduce((sum, f) => sum + f.content.length, 0) <= SANDBOX_FILES_MAX_TOTAL_B64,
       { message: `sandbox_files: total base64 size must be ≤ 10 MB` },
     ),
+  projects: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().default(""),
+    repo_url: z.string().optional(),
+    branch: z.string().default("main"),
+    setup_cmd: z.string().optional(),
+  })).optional(),
   /**
    * Library skills to attach at create time. Each becomes a
    * `<!-- skill:<id> -->` block appended to `prompt` (via appendSkillBlock)
@@ -145,6 +154,13 @@ export const CreateAgentBody = z.object({
    * IDs cause a 404 (same pattern as the single-skill attach route).
    */
   skill_ids: z.array(z.string().min(1)).optional(),
+  /**
+   * Template this agent is derived from. When provided, template_version is
+   * automatically set to the template's current version. The template prompt
+   * is injected at session spawn time (live read), so future template bumps
+   * reach this agent via POST /agents/:id/template/sync.
+   */
+  template_id: z.string().optional(),
   /**
    * Agent-level env vars persisted to the DB and injected into every
    * session container. Same constraints as CreateSessionBody.env_vars.
@@ -184,6 +200,14 @@ export const UpdateAgentBody = z.object({
    * here so a runaway value can't blow up the prompt.
    */
   preload_memory_limit: z.number().int().min(0).max(50).optional(),
+  projects: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().default(""),
+    repo_url: z.string().optional(),
+    branch: z.string().default("main"),
+    setup_cmd: z.string().optional(),
+  })).optional(),
   /**
    * Replace the agent's env_vars map. Same constraints as the CreateAgentBody
    * version: max keys, max byte size, reserved keys blocked. The PATCH route
@@ -394,12 +418,25 @@ export interface ApiAgent {
   allow_out: string[];
   deny_out: string[];
   sandbox_files: SandboxFileSpec[];
+  projects: unknown[];
   /**
    * Max non-pinned memories preloaded into AGENT_PROMPT at session start.
    * Pinned memories are always-included on top of this, capped server-side
    * by MAX_PINNED_PRELOAD. Editable per-agent on /agents/:id/memory.
    */
   preload_memory_limit: number;
+  /** Template this agent was created from. Null if not template-derived. */
+  template_id: string | null;
+  /** Version of the template at last sync. Null if not template-derived. */
+  template_version: number | null;
+  /** Current version of the referenced template. Null if not template-derived or template deleted. */
+  template_latest_version: number | null;
+  /** False when template_version < template_latest_version — "sync available". */
+  template_in_sync: boolean;
+  /** Snapshot of template.prompt at last creation/sync — the "before" side of the diff. Null if not template-derived or agent predates this field. */
+  template_prompt: string | null;
+  /** Current template prompt text — the "after" side of the diff. Null if not template-derived. */
+  template_latest_prompt: string | null;
   created_at: string;
 }
 
@@ -426,6 +463,10 @@ export interface ApiSession {
   id: string;
   agent_id: string;
   sandbox_url: string | null;
+  // opencode/harness session id inside the pod. The browser opencode SDK
+  // needs it to address session.prompt / session.messages. Null until the
+  // harness session is created during bring-up.
+  harness_session_id: string | null;
   // Browser-accessible WebSocket base URL for TUI harnesses.
   // - IN_CLUSTER deployments: a relative path routed through the platform's
   //   TCP proxy (server-proxy.mjs) so the browser never dials the
@@ -681,6 +722,9 @@ export interface HarnessCreateSessionOpts {
   prompt?: string;
   files?: SandboxFileSpec[];
   timeout_ms?: number;
+  sandbox_tools?: boolean;
+  projects?: Array<{ id: string; name: string; description: string; repo_url?: string; branch?: string }>;
+  agent_id?: string;
 }
 
 export interface HarnessSendMessageOpts {
@@ -829,7 +873,21 @@ export function toApiAgent(row: AgentRow): ApiAgent {
     sandbox_files: Array.isArray((row as Record<string, unknown>).sandbox_files)
       ? ((row as Record<string, unknown>).sandbox_files as SandboxFileSpec[])
       : [],
+    projects: Array.isArray((row as Record<string, unknown>).projects)
+      ? ((row as Record<string, unknown>).projects as unknown[])
+      : [],
     preload_memory_limit: row.preload_memory_limit,
+    template_id: row.template_id ?? null,
+    template_version: row.template_version ?? null,
+    ...(() => {
+      const tpl = row.template_id ? getTemplate(row.template_id) : undefined;
+      return {
+        template_latest_version: tpl?.version ?? null,
+        template_in_sync: tpl ? (row.template_version ?? 0) >= tpl.version : true,
+        template_prompt: row.template_prompt ?? null,
+        template_latest_prompt: tpl?.prompt ?? null,
+      };
+    })(),
     created_at: row.created_at.toISOString(),
   };
 }
@@ -948,6 +1006,7 @@ export function toApiSession(
     id: row.session_id,
     agent_id: row.agent_id,
     sandbox_url: row.sandbox_url ?? null,
+    harness_session_id: row.harness_session_id ?? null,
     tty_url: ttyUrl,
     tty_token: ttyToken,
     supports_tui: supportsTui,
