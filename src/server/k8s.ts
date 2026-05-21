@@ -1345,6 +1345,11 @@ export async function createInlineHarnessDeployment(image: string): Promise<void
     { name: "LITELLM_DEFAULT_MODEL", value: "anthropic/claude-sonnet-4-6" },
     { name: "LITELLM_API_BASE", value: env.LITELLM_API_BASE },
     { name: "LAP_BASE_URL", value: env.LAP_BASE_URL },
+    // MASTER_KEY as LAP_AUTH_TOKEN lets buildSandboxMcpServer authenticate
+    // back to the platform for provision/execute calls. Cluster-internal HTTP
+    // calls (LAP_BASE_URL is .svc.cluster.local) bypass vault via NO_PROXY, so
+    // the token is used directly — vault stubbing doesn't apply here.
+    { name: "LAP_AUTH_TOKEN", value: env.MASTER_KEY },
     { name: "PLATFORM_INTERNAL_URL", value: env.PLATFORM_INTERNAL_URL },
     // Route all HTTPS through the in-pod vault sidecar (same as session sandboxes).
     { name: "HTTPS_PROXY", value: "http://127.0.0.1:14322" },
