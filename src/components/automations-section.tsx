@@ -12,7 +12,7 @@
  * not part of the form submit.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Check, Clock, Loader2, Pencil, Play, Plus, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -176,7 +176,10 @@ export function AutomationsSection({ agentId }: Props) {
                 running={runningId === auto.id}
                 ran={ranId === auto.id}
                 onRun={() => handleRunNow(auto.id)}
-                onEdit={() => setEditingId(auto.id)}
+                onEdit={() => {
+                  setAdding(false);
+                  setEditingId(auto.id);
+                }}
                 onToggle={() => handleToggle(auto)}
                 onDelete={() => handleDelete(auto.id)}
               />
@@ -201,7 +204,10 @@ export function AutomationsSection({ agentId }: Props) {
           variant="outline"
           size="sm"
           className="mt-3"
-          onClick={() => setAdding(true)}
+          onClick={() => {
+            setEditingId(null);
+            setAdding(true);
+          }}
         >
           <Plus className="h-3.5 w-3.5" />
           <span className="ml-1.5">Add automation</span>
@@ -346,6 +352,9 @@ function AutomationForm({
     initial && initialLabel === CUSTOM_LABEL ? initial.cron_expr : "",
   );
   const [saving, setSaving] = useState(false);
+  // Unique per form instance so an add + edit form on screen at once can't
+  // collide on the same DOM id (which would break label association).
+  const instructionId = useId();
 
   const isCustom = scheduleLabel === CUSTOM_LABEL;
   const cronExpr = isCustom
@@ -368,9 +377,9 @@ function AutomationForm({
   return (
     <div className="mt-3 space-y-3 rounded-lg border bg-card/40 p-4">
       <div className="space-y-1.5">
-        <Label htmlFor="automation-instruction">Instruction</Label>
+        <Label htmlFor={instructionId}>Instruction</Label>
         <Textarea
-          id="automation-instruction"
+          id={instructionId}
           rows={3}
           placeholder="What should the agent do each time this runs?"
           value={instruction}
