@@ -687,6 +687,74 @@ export function deleteMemory(agentId: string, memoryId: string): Promise<void> {
   );
 }
 
+// ---------- Automations ----------
+
+export interface AutomationRow {
+  id: string;
+  agent_id: string;
+  name: string | null;
+  instruction: string;
+  cron_expr: string;
+  enabled: boolean;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  created_at: string;
+}
+
+export interface CreateAutomationRequest {
+  instruction: string;
+  cron_expr: string;
+  name?: string;
+  enabled?: boolean;
+}
+
+export interface UpdateAutomationRequest {
+  instruction?: string;
+  cron_expr?: string;
+  name?: string | null;
+  enabled?: boolean;
+}
+
+export function listAutomations(agentId: string): Promise<AutomationRow[]> {
+  return api<AutomationRow[]>(
+    "GET",
+    `/v1/managed_agents/agents/${encodeURIComponent(agentId)}/automations`,
+  );
+}
+
+export function createAutomation(
+  agentId: string,
+  req: CreateAutomationRequest,
+): Promise<AutomationRow> {
+  return api<AutomationRow>(
+    "POST",
+    `/v1/managed_agents/agents/${encodeURIComponent(agentId)}/automations`,
+    req,
+  );
+}
+
+export function updateAutomation(
+  agentId: string,
+  automationId: string,
+  req: UpdateAutomationRequest,
+): Promise<AutomationRow> {
+  return api<AutomationRow>(
+    "PATCH",
+    `/v1/managed_agents/agents/${encodeURIComponent(agentId)}/automations/${encodeURIComponent(automationId)}`,
+    req,
+  );
+}
+
+export function deleteAutomation(
+  agentId: string,
+  automationId: string,
+): Promise<void> {
+  return api<void>(
+    "DELETE",
+    `/v1/managed_agents/agents/${encodeURIComponent(agentId)}/automations/${encodeURIComponent(automationId)}`,
+  );
+}
+
 // ---------- Sessions ----------
 
 export interface CreateSessionRequest {
