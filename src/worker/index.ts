@@ -20,6 +20,7 @@ import { prisma } from "@/server/db";
 import { env } from "@/server/env";
 import { reconcileOrphans } from "@/server/reconcile";
 import { topUpWarmPool } from "@/server/warmPool";
+import { tickAutomations } from "@/server/automations";
 import { registry } from "@/server/metrics";
 
 const intervalMs = env.RECONCILE_INTERVAL_SECONDS * 1000;
@@ -29,6 +30,7 @@ async function tick() {
   let k8s_ok = true;
   let r = { inspected: 0, stopped: 0, failed_creating: 0, idle_killed: 0, warm_orphans_stopped: 0, ghost_killed: 0, warm_stale_killed: 0 };
   let t = { provisioned: 0, recycled: 0, fallback_dead: 0 };
+  let a = { claimed: 0, fired: 0, failed: 0 };
 
   try {
     r = await reconcileOrphans();
@@ -52,6 +54,17 @@ async function tick() {
     }
   }
 
+  // Fire any due scheduled automations. Independent of the warm pool — always
+  // on. Claiming is multi-pod safe (FOR UPDATE SKIP LOCKED), so running this
+  // on every worker instance can't double-fire a schedule.
+  try {
+    a = await tickAutomations();
+    registry.inc("automations_fired_total", {}, a.fired);
+    registry.inc("automations_failed_total", {}, a.failed);
+  } catch (e) {
+    console.error("automations tick failed:", e);
+  }
+
   const elapsed = Date.now() - tickStart;
   registry.observe("reconcile_duration_seconds", {}, elapsed / 1000);
 
@@ -62,7 +75,8 @@ async function tick() {
     ` inspected=${r.inspected} stopped=${r.stopped}` +
     ` failed_creating=${r.failed_creating} idle_killed=${r.idle_killed}` +
     ` ghost_killed=${r.ghost_killed} warm_stale_killed=${r.warm_stale_killed}` +
-    ` warm_provisioned=${t.provisioned} warm_recycled=${t.recycled}`,
+    ` warm_provisioned=${t.provisioned} warm_recycled=${t.recycled}` +
+    ` automations_fired=${a.fired} automations_failed=${a.failed}`,
   );
 }
 
