@@ -270,7 +270,7 @@ function AutomationItem({
             variant="ghost"
             size="sm"
             onClick={onEdit}
-            disabled={busy}
+            disabled={busy || running}
             aria-label="Edit automation"
           >
             <Pencil className="h-3.5 w-3.5" />
