@@ -1377,9 +1377,14 @@ export async function createInlineHarnessDeployment(image: string): Promise<void
     spec: {
       replicas: 1,
       selector: { matchLabels: labels },
+      strategy: {
+        type: "RollingUpdate",
+        rollingUpdate: { maxUnavailable: 0, maxSurge: 1 },
+      },
       template: {
         metadata: { labels },
         spec: {
+          terminationGracePeriodSeconds: 600,
           containers: [
             {
               name: "harness",

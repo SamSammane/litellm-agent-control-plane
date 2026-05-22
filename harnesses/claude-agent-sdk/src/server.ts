@@ -737,6 +737,7 @@ app.get("/", (c) =>
 );
 
 app.post("/session", async (c) => {
+  if (draining) return c.json({ error: "draining" }, 503);
   let title: string | undefined;
   let prompt: string | undefined;
   let files: Array<{ sandbox_path: string; content: string }> = [];
@@ -943,6 +944,14 @@ app.get("/event", (c) =>
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
+
+// On SIGTERM (rolling deploy), stop accepting new sessions and let
+// in-flight turns complete within terminationGracePeriodSeconds.
+let draining = false;
+process.on("SIGTERM", () => {
+  draining = true;
+  console.log("[harness] SIGTERM received — draining in-flight turns");
+});
 
 serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" }, (info) => {
   console.log(

@@ -91,6 +91,26 @@ async function persistHistorySnapshot(opts: {
   }
 }
 
+// last_seen_at heartbeat cadence while a message turn runs. Must stay
+// comfortably below SESSION_IDLE_TIMEOUT_MS so the reconciler never mistakes
+// an in-flight turn for an idle session. Writes directly to prisma — not the
+// batched markSessionSeen queue — so the flush is guaranteed every interval.
+const MESSAGE_HEARTBEAT_MS = 60_000;
+
+function startHeartbeat(session_id: string): NodeJS.Timeout {
+  const t = setInterval(() => {
+    void prisma.session
+      .update({ where: { session_id }, data: { last_seen_at: new Date() } })
+      .catch((err) => {
+        console.warn(
+          `message heartbeat failed for ${session_id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+  }, MESSAGE_HEARTBEAT_MS);
+  if (typeof t.unref === "function") t.unref();
+  return t;
+}
+
 // Fire-and-forget the durable assistant write + legacy history snapshot.
 // Failures are logged and swallowed — never block the user reply on a persist.
 function persistTurn(opts: {
@@ -185,12 +205,18 @@ async function recoverAndResend(opts: {
     throw new HttpError(502, "session recovery failed");
   }
 
-  const response = await harnessSendMessage({
-    sandbox_url: recovered.sandbox_url,
-    harness_session_id: recovered.harness_session_id,
-    model: recovered.agent_model,
-    parts,
-  });
+  const hb = startHeartbeat(session_id);
+  let response: HarnessMessageResponse;
+  try {
+    response = await harnessSendMessage({
+      sandbox_url: recovered.sandbox_url,
+      harness_session_id: recovered.harness_session_id,
+      model: recovered.agent_model,
+      parts,
+    });
+  } finally {
+    clearInterval(hb);
+  }
   markSessionSeen(session_id);
   persistTurn({
     session_id,
@@ -242,6 +268,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     });
 
     let response: HarnessMessageResponse;
+    const hb = startHeartbeat(session_id);
     try {
       response = await harnessSendMessage({
         sandbox_url: cached.sandbox_url,
@@ -278,6 +305,8 @@ export async function POST(req: Request, ctx: RouteContext) {
       console.error("harness send_message failed", err);
       if (userMsg) void markUserMessageFailed(userMsg.message_id);
       throw new HttpError(502, "harness request failed");
+    } finally {
+      clearInterval(hb);
     }
 
     markSessionSeen(session_id);
