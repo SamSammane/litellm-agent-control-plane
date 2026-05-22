@@ -1445,8 +1445,8 @@ export async function createInlineHarnessDeployment(image: string): Promise<void
                 { name: "vault-ca",   mountPath: "/etc/vault-ca", readOnly: true },
               ],
               resources: {
-                requests: { cpu: "100m", memory: "256Mi" },
-                limits: { cpu: "500m", memory: "512Mi" },
+                requests: { cpu: "100m", memory: "512Mi" },
+                limits: { cpu: "1", memory: "2Gi" },
               },
             },
             {
