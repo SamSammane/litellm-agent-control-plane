@@ -239,7 +239,11 @@ export async function syncSessionThread(opts: {
         ? (current.history as unknown as HarnessMessage[])
         : [];
       const incomingMax = threadMaxCreated(thread);
-      if (incomingMax > 0 && incomingMax < threadMaxCreated(existing)) return;
+      const existingMax = threadMaxCreated(existing);
+      // An incoming snapshot with no timestamps can't be proven newer — don't
+      // let it clobber an existing snapshot that does have timestamps.
+      if (incomingMax === 0 && existingMax > 0) return;
+      if (incomingMax > 0 && incomingMax < existingMax) return;
       await tx.session.update({
         where: { session_id },
         data: { history: thread as unknown as Prisma.InputJsonValue },
@@ -512,9 +516,13 @@ export async function getSessionLog(
       thread = await harnessListMessages({
         sandbox_url: session.sandbox_url,
         harness_session_id: session.harness_session_id,
+        // Short read timeout: this is a UI log-panel request, so a slow-but-live
+        // sandbox should fall back to persisted history fast rather than stall
+        // the response for the default 60s.
+        timeout_ms: 5_000,
       });
     } catch {
-      thread = null; // harness unreachable — fall back to persisted state
+      thread = null; // harness unreachable/slow — fall back to persisted state
     }
   }
   if (!thread || thread.length === 0) {
