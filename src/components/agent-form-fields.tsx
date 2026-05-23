@@ -10,7 +10,9 @@ import { PfpUpload } from "@/components/pfp-upload";
 import { HarnessPicker, HARNESS_OPTIONS, DEFAULT_HARNESS_ID } from "@/components/harness-picker";
 import { ModelPicker } from "@/components/model-picker";
 import { McpToolsPicker, EnabledTools, EnabledToolsUpdater } from "@/components/mcp-tools-picker";
+import { EgressHostsEditor } from "@/components/egress-hosts-editor";
 import { SkillRow, listSkills } from "@/lib/api";
+import { suggestHostsForKey } from "@/lib/egress-hosts";
 import { cn } from "@/lib/utils";
 
 export { DEFAULT_HARNESS_ID };
@@ -43,6 +45,12 @@ export interface AgentFormFieldsProps {
   onSkillSaveToLibraryChange: (v: boolean) => void;
   envVars: [string, string][];
   onEnvVarsChange: (v: [string, string][]) => void;
+  /** Egress allowlist (per-agent). Required — the form gates submit on it. */
+  allowOut: string[];
+  onAllowOutChange: (v: string[]) => void;
+  /** Per-credential host binding: env var name → allowed hosts for its value. */
+  envVarHosts: Record<string, string[]>;
+  onEnvVarHostsChange: (v: Record<string, string[]>) => void;
   enabledTools: EnabledTools;
   onEnabledToolsChange: (v: EnabledTools | EnabledToolsUpdater) => void;
   onMcpToolTotals?: (totals: Map<string, number>) => void;
@@ -97,6 +105,8 @@ export function AgentFormFields({
   skillMode, onSkillModeChange,
   skillSaveToLibrary, onSkillSaveToLibraryChange,
   envVars, onEnvVarsChange,
+  allowOut, onAllowOutChange,
+  envVarHosts, onEnvVarHostsChange,
   enabledTools, onEnabledToolsChange,
   onMcpToolTotals,
   disabled = false,
@@ -115,7 +125,15 @@ export function AgentFormFields({
   }, [pickedSkillIds.length]);
 
   function setEnvKey(idx: number, key: string) {
+    const oldKey = envVars[idx]?.[0] ?? "";
     onEnvVarsChange(envVars.map((p, i) => (i === idx ? [key, p[1]] : p)));
+    // Carry any host binding over to the renamed key so it isn't silently lost.
+    if (oldKey !== key && envVarHosts[oldKey]) {
+      const next = { ...envVarHosts };
+      delete next[oldKey];
+      if (key.trim()) next[key] = envVarHosts[oldKey];
+      onEnvVarHostsChange(next);
+    }
   }
   function setEnvVal(idx: number, val: string) {
     onEnvVarsChange(envVars.map((p, i) => (i === idx ? [p[0], val] : p)));
@@ -124,8 +142,25 @@ export function AgentFormFields({
     onEnvVarsChange([...envVars, ["", ""]]);
   }
   function removeEnvRow(idx: number) {
+    const removedKey = envVars[idx]?.[0] ?? "";
     const next = envVars.filter((_, i) => i !== idx);
     onEnvVarsChange(next.length === 0 ? [["", ""]] : next);
+    if (removedKey && envVarHosts[removedKey]) {
+      const nextHosts = { ...envVarHosts };
+      delete nextHosts[removedKey];
+      onEnvVarHostsChange(nextHosts);
+    }
+  }
+  // Toggle whether the credential `key` may be swapped into requests for `host`.
+  function toggleHostForKey(key: string, host: string) {
+    const cur = envVarHosts[key] ?? [];
+    const nextHosts = cur.includes(host)
+      ? cur.filter((h) => h !== host)
+      : [...cur, host];
+    const updated = { ...envVarHosts };
+    if (nextHosts.length > 0) updated[key] = nextHosts;
+    else delete updated[key];
+    onEnvVarHostsChange(updated);
   }
 
   function handleEnvFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -500,6 +535,21 @@ export function AgentFormFields({
         ) : null}
       </div>
 
+      {/* Allowed hosts (egress) */}
+      <div className="space-y-1.5">
+        <Label>Allowed hosts (egress)</Label>
+        <p className="text-xs text-muted-foreground">
+          The only hosts this agent can reach. Each credential below can be bound
+          to one of these, so a secret is never sent anywhere else.
+        </p>
+        <EgressHostsEditor
+          value={allowOut}
+          onChange={onAllowOutChange}
+          disabled={disabled}
+          required
+        />
+      </div>
+
       {/* Env vars */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
@@ -526,39 +576,92 @@ export function AgentFormFields({
         </p>
         <div className="rounded-lg border bg-card">
           <ul className="divide-y">
-            {envVars.map(([k, v], idx) => (
-              <li key={idx} className="flex items-center gap-2 px-2 py-1.5">
-                <Input
-                  value={k}
-                  onChange={(e) => setEnvKey(idx, e.target.value)}
-                  placeholder="KEY"
-                  disabled={disabled}
-                  className="h-7 flex-1 font-mono text-xs uppercase"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                <span className="shrink-0 text-[11px] text-muted-foreground">=</span>
-                <Input
-                  value={v}
-                  onChange={(e) => setEnvVal(idx, e.target.value)}
-                  placeholder="value"
-                  disabled={disabled}
-                  className="h-7 flex-[2] font-mono text-xs"
-                  autoComplete="off"
-                  spellCheck={false}
-                  type="password"
-                />
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => removeEnvRow(idx)}
-                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive disabled:opacity-40"
-                  aria-label="Remove row"
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              </li>
-            ))}
+            {envVars.map(([k, v], idx) => {
+              const key = k.trim();
+              const bound = key ? (envVarHosts[key] ?? []) : [];
+              // Hosts we'd recommend for this key that the user has allowed but
+              // not yet bound — surfaced as a one-tap suggestion.
+              const suggested = key
+                ? suggestHostsForKey(key).filter(
+                    (h) => allowOut.includes(h) && !bound.includes(h),
+                  )
+                : [];
+              return (
+                <li key={idx} className="flex flex-col gap-1 px-2 py-1.5">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={k}
+                      onChange={(e) => setEnvKey(idx, e.target.value)}
+                      placeholder="KEY"
+                      disabled={disabled}
+                      className="h-7 flex-1 font-mono text-xs uppercase"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <span className="shrink-0 text-[11px] text-muted-foreground">=</span>
+                    <Input
+                      value={v}
+                      onChange={(e) => setEnvVal(idx, e.target.value)}
+                      placeholder="value"
+                      disabled={disabled}
+                      className="h-7 flex-[2] font-mono text-xs"
+                      autoComplete="off"
+                      spellCheck={false}
+                      type="password"
+                    />
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => removeEnvRow(idx)}
+                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive disabled:opacity-40"
+                      aria-label="Remove row"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                  {key ? (
+                    allowOut.length === 0 ? (
+                      <p className="pl-1 text-[10px] text-muted-foreground">
+                        Add an allowed host above to bind this credential.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-1 pl-1">
+                        <span className="text-[10px] text-muted-foreground">Send to:</span>
+                        {allowOut.map((h) => {
+                          const on = bound.includes(h);
+                          return (
+                            <button
+                              key={h}
+                              type="button"
+                              disabled={disabled}
+                              onClick={() => toggleHostForKey(key, h)}
+                              className={cn(
+                                "rounded-full border px-1.5 py-0.5 font-mono text-[10px] transition-colors disabled:opacity-40",
+                                on
+                                  ? "border-foreground bg-foreground text-background"
+                                  : "text-muted-foreground hover:border-foreground/40 hover:text-foreground",
+                              )}
+                            >
+                              {h}
+                            </button>
+                          );
+                        })}
+                        {suggested.length > 0 ? (
+                          <button
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => suggested.forEach((h) => toggleHostForKey(key, h))}
+                            className="rounded-full border border-dashed px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
+                          >
+                            + bind {suggested.join(", ")}
+                          </button>
+                        ) : null}
+                      </div>
+                    )
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
           <div className="border-t px-2 py-1.5">
             <button
