@@ -1586,7 +1586,7 @@ export async function createInlineHarnessDeployment(image: string): Promise<void
               ],
               resources: {
                 requests: { cpu: "100m", memory: "512Mi" },
-                limits: { cpu: "1", memory: "2Gi" },
+                limits: { cpu: "2", memory: "4Gi" },
               },
             },
             {
