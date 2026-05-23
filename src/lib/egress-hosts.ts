@@ -66,3 +66,26 @@ export function isValidEgressHost(entry: string): boolean {
   const s = entry.trim();
   return s.length > 0 && s.length <= 253 && HOST_ENTRY_RE.test(s);
 }
+
+/**
+ * Whether `host` is permitted by a single allowlist `rule`. Mirrors the vault's
+ * `matchesRule` for the two forms a credential binding can use — an exact host
+ * and a `*.` wildcard suffix — so the platform's reconcile/validation agrees
+ * with what the proxy will actually enforce. CIDR/IP rules fall back to exact
+ * compare here (bindings are domains in practice; the vault still does the full
+ * CIDR check at egress).
+ */
+export function hostMatchesRule(host: string, rule: string): boolean {
+  const r = rule.trim();
+  if (r.startsWith("*.")) {
+    const suffix = r.slice(1); // "*.example.com" -> ".example.com"
+    return host === suffix.slice(1) || host.endsWith(suffix);
+  }
+  return host === r;
+}
+
+/** Whether `host` is permitted by any rule in `allow`. */
+export function hostAllowedByList(host: string, allow: Iterable<string>): boolean {
+  for (const rule of allow) if (hostMatchesRule(host, rule)) return true;
+  return false;
+}
