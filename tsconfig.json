@@ -31,5 +31,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "harnesses", "vault", "tests", "playwright.config.ts"]
+  "exclude": ["node_modules", "harnesses", "vault", "cloud-vault", "tests", "playwright.config.ts"]
 }

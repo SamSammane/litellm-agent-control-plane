@@ -173,3 +173,31 @@ services:
         value: IfNotPresent
       - key: WARM_POOL_SIZE
         value: "2"
+
+  # cloud-vault: standalone HTTPS CONNECT proxy for E2B sandboxes.
+  # Before first deploy, upload vault/ca.crt and vault/ca.key as
+  # Render Secret Files at /etc/vault-ca/tls.crt and /etc/vault-ca/tls.key.
+  - type: web
+    name: lap-cloud-vault
+    runtime: node
+    plan: starter
+    rootDir: cloud-vault
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: MASTER_KEY
+        sync: false
+      - key: VAULT_PROXY_TOKEN
+        sync: false
+      - key: LITELLM_API_KEY
+        sync: false
+      - key: EGRESS_DEFAULT_DENY
+        value: "true"
+      - key: VAULT_PORT
+        value: "10000"
