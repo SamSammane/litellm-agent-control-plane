@@ -30,18 +30,20 @@ const EXECUTE_TIMEOUT_MS = Number(process.env.SANDBOX_EXECUTE_TIMEOUT_MS) || 120
 // leaked VM (e.g. a name reused across sessions, or a crash before cleanup).
 const SANDBOX_TIMEOUT_MS = Number(process.env.SANDBOX_TIMEOUT_MS) || 900_000;
 
-// label -> e2b sandboxId, so execute() can reconnect by the name provision()
-// used. NOTE: this Map is process-wide. opencode runs one shared `opencode
-// serve` across all sessions, and a stdio MCP has no per-session context, so
-// sandbox names share a single namespace. Reusing a name kills the previous
-// sandbox (see provision) to avoid leaking it.
+// label -> live e2b Sandbox instance. We keep the instance from provision() and
+// reuse it for every execute() instead of calling Sandbox.connect() per command
+// (the SDK has no close()/disconnect(), so reconnecting each time would leak
+// client objects in this long-lived process). NOTE: this Map is process-wide —
+// opencode runs one shared `opencode serve` across all sessions and a stdio MCP
+// has no per-session context, so names share a single namespace. Reusing a name
+// kills the previous sandbox (see provision) to avoid leaking it.
 const sandboxes = new Map();
 
-async function killSandbox(id) {
+async function killSandbox(sandbox) {
   try {
-    await Sandbox.kill(id, { apiKey: API_KEY });
+    await sandbox.kill();
   } catch (err) {
-    console.error(`[sandbox-mcp] kill ${id} failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[sandbox-mcp] kill ${sandbox.sandboxId} failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -121,7 +123,7 @@ async function provision({ name, project_id }) {
       apiKey: API_KEY,
       timeoutMs: SANDBOX_TIMEOUT_MS,
     });
-    sandboxes.set(name, sandbox.sandboxId);
+    sandboxes.set(name, sandbox);
     return textResult(
       `sandbox "${name}" provisioned (e2b ${sandbox.sandboxId}, template ${TEMPLATE})`,
     );
@@ -132,15 +134,14 @@ async function provision({ name, project_id }) {
 
 async function execute({ sandbox_name, cmd }) {
   if (!API_KEY) return textResult("execute failed: E2B_API_KEY not set", true);
-  const id = sandboxes.get(sandbox_name);
-  if (!id) {
+  const sandbox = sandboxes.get(sandbox_name);
+  if (!sandbox) {
     return textResult(
       `execute failed: no sandbox named "${sandbox_name}" — call provision() first`,
       true,
     );
   }
   try {
-    const sandbox = await Sandbox.connect(id, { apiKey: API_KEY });
     const result = await sandbox.commands.run(cmd, { timeoutMs: EXECUTE_TIMEOUT_MS });
     const out = (result.stdout ?? "") + (result.stderr ?? "");
     const code = result.exitCode ?? 0;
