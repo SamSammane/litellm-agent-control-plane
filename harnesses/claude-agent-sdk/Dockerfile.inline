@@ -1,0 +1,53 @@
+# syntax=docker/dockerfile:1.7
+#
+# Self-contained Claude Agent SDK harness.
+# Build from repo root — no pre-built base image required:
+#
+#   docker build -f harnesses/claude-agent-sdk/Dockerfile.inline -t claude-agent-sdk-inline .
+#
+# On Render, set:
+#   dockerfilePath = harnesses/claude-agent-sdk/Dockerfile.inline
+#   dockerContext  = .
+
+FROM node:20-bookworm-slim AS builder
+
+WORKDIR /build
+
+# Build managed-tools (local workspace dep used by the harness)
+COPY managed-tools/package*.json ./managed-tools/
+RUN cd managed-tools && npm install
+COPY managed-tools/ ./managed-tools/
+RUN cd managed-tools && npm run build
+
+# Install harness deps — explicitly include linux-x64 claude binary
+COPY harnesses/claude-agent-sdk/package*.json ./harnesses/claude-agent-sdk/
+RUN cd harnesses/claude-agent-sdk && \
+    npm install && \
+    # Force-install the linux-x64 native claude binary (optional dep may be skipped)
+    npm install --cpu=x64 --os=linux \
+        @anthropic-ai/claude-agent-sdk-linux-x64@$(node -e "console.log(require('./harnesses/claude-agent-sdk/node_modules/@anthropic-ai/claude-agent-sdk/package.json').version)")
+
+# Build TypeScript
+COPY harnesses/claude-agent-sdk/src/ ./harnesses/claude-agent-sdk/src/
+COPY harnesses/claude-agent-sdk/tsconfig*.json ./harnesses/claude-agent-sdk/
+RUN cd harnesses/claude-agent-sdk && npm run build
+
+# ── runtime ──────────────────────────────────────────────────────────────────
+FROM node:20-bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git ca-certificates curl bash jq \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy built harness + deps
+COPY --from=builder /build/managed-tools/dist/ ./managed-tools/dist/
+COPY --from=builder /build/managed-tools/package.json ./managed-tools/
+COPY --from=builder /build/harnesses/claude-agent-sdk/dist/ ./dist/
+COPY --from=builder /build/harnesses/claude-agent-sdk/node_modules/ ./node_modules/
+
+ENV PORT=10000
+EXPOSE 10000
+
+CMD ["node", "dist/server.js"]
