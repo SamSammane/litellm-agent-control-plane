@@ -18,7 +18,6 @@
  * tiny.
  */
 
-import os from "os";
 import type { AutomationRun } from "@prisma/client";
 import { Cron } from "croner";
 import { prisma } from "@/server/db";
@@ -91,8 +90,6 @@ async function spawnAutomationSession(auto: DueAutomationRow): Promise<string> {
     env.PLATFORM_INTERNAL_URL ||
     env.LAP_BASE_URL ||
     "http://localhost:3000";
-  const host = os.hostname();
-  console.log("[automation] spawnAutomationSession", { baseUrl, agent_id: auto.agent_id, automation_id: auto.automation_id, pid: process.pid, host });
   const url = `${baseUrl.replace(/\/+$/, "")}/api/v1/managed_agents/agents/${encodeURIComponent(
     auto.agent_id,
   )}/session`;
@@ -104,14 +101,11 @@ async function spawnAutomationSession(auto: DueAutomationRow): Promise<string> {
     },
     body: JSON.stringify({
       initial_prompt: auto.instruction,
-      title: `[auto:${baseUrl.replace(/https?:\/\//,'').slice(0,20)}] ${auto.name ?? auto.automation_id.slice(0, 8)}`,
+      title: `[auto] ${auto.name ?? auto.automation_id.slice(0, 8)}`,
     }),
   });
-  console.log("[automation] session create response", { status: res.status, url, automation_id: auto.automation_id });
   if (!res.ok) {
-    const body = await res.text();
-    console.error("[automation] session create FAILED", { status: res.status, body, url, baseUrl, host, pid: process.pid });
-    throw new Error(`session create failed: ${res.status} ${body} [host=${host} pid=${process.pid} baseUrl=${baseUrl}]`);
+    throw new Error(`session create failed: ${res.status} ${await res.text()}`);
   }
   // toApiSession renames session_id → id.
   const session = (await res.json()) as { id: string };
@@ -196,7 +190,6 @@ export async function tickAutomations(): Promise<AutomationTickResult> {
   // against the session timezone. Reuse the same instant for the due check and
   // the re-anchoring below.
   const now = new Date();
-  console.log("[tickAutomations] tick start", { now: now.toISOString(), pid: process.pid, BASE_URL: process.env.BASE_URL, PLATFORM_INTERNAL_URL: process.env.PLATFORM_INTERNAL_URL, LAP_BASE_URL: process.env.LAP_BASE_URL });
 
   // Claim + advance atomically. The lock is held only for the duration of the
   // next_run_at updates — never across the session spawn below.
@@ -232,7 +225,6 @@ export async function tickAutomations(): Promise<AutomationTickResult> {
     return rows;
   });
 
-  console.log("[tickAutomations] claimed", { count: due.length, automations: due.map(a => ({ id: a.automation_id, agent: a.agent_id })) });
   if (due.length === 0) return { claimed: 0, fired: 0, failed: 0 };
 
   // Fire outside the transaction. Failures are isolated per automation —
