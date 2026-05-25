@@ -133,8 +133,20 @@ export function useOpencodeThread(
       // turn keeps running server-side. On every disconnect we re-seed from
       // history (/event does NOT replay, so this catches anything missed during
       // the gap) and re-subscribe, with capped backoff, so the chat self-heals.
+      // Abort-aware so unmount/nav (ctl.abort()) breaks the backoff wait
+      // immediately instead of lingering up to the backoff cap.
       const sleep = (ms: number) =>
-        new Promise<void>((r) => setTimeout(r, ms));
+        new Promise<void>((r) => {
+          const timer = setTimeout(r, ms);
+          ctl.signal.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timer);
+              r();
+            },
+            { once: true },
+          );
+        });
       let backoffMs = 1000;
       while (!cancelled) {
         try {
