@@ -86,9 +86,21 @@ RUN set -e; \
     su -c "psql -c \"CREATE DATABASE litellm OWNER litellm;\"" user; \
     su -c "${PG_BIN}/pg_ctl -D ${PG_DATA} stop -m fast" user
 
-# ── dev-up script ─────────────────────────────────────────────────────────────
-# source /usr/local/bin/dev-up  → starts postgres + exports all proxy env vars
+# ── Dev DB + proxy env (baked in) ──────────────────────────────────────────────
+# E2B runs each `commands.run` in a fresh, non-interactive shell, so env from
+# `source dev-up` never carries across commands. Baking these as image ENV makes
+# DATABASE_URL (and the proxy creds) available to EVERY command automatically.
+# Postgres itself is auto-started by the template start_cmd (see e2b.toml).
+ENV DATABASE_URL=postgresql://litellm:litellm@localhost:5432/litellm
+ENV LITELLM_MASTER_KEY=sk-1234
+ENV LITELLM_SALT_KEY=sk-litellm-salt-dev-unsafe
+ENV STORE_MODEL_IN_DB=True
+
+# ── DB start + dev-up scripts ──────────────────────────────────────────────────
+# start-db: starts postgres (run at sandbox boot via e2b.toml start_cmd).
+# dev-up:   source it for an interactive shell → starts postgres + exports env.
+COPY start-db.sh /usr/local/bin/start-db
 COPY dev-up.sh /usr/local/bin/dev-up
-RUN chmod +x /usr/local/bin/dev-up
+RUN chmod +x /usr/local/bin/start-db /usr/local/bin/dev-up
 
 RUN chown -R user:user /home/user/litellm /home/user/litellm-docs
