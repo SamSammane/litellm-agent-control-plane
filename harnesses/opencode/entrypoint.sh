@@ -163,7 +163,16 @@ if [ -n "${SKILLS_JSON:-}" ]; then
   ' || echo "[entrypoint] WARNING: skill hydration failed; continuing"
 fi
 
-echo "[entrypoint] booting opencode serve on 0.0.0.0:${PORT}"
 echo "[entrypoint] base=${BASE} model=${LITELLM_DEFAULT_MODEL} repo=${REPO_DIR}"
 
+# Inline (shared-server) mode: one opencode serve fronted by the inline adapter,
+# which gives each agent its own working directory of skills so per-agent skills
+# are loadable on the single shared server. Set by Dockerfile.inline; the
+# pod-per-session image leaves it unset and runs opencode serve directly.
+if [ "${OPENCODE_SHARED_INLINE:-}" = "1" ]; then
+  echo "[entrypoint] booting opencode inline adapter (shared server) on 0.0.0.0:${PORT}"
+  exec node /opt/lap/inline-adapter.mjs
+fi
+
+echo "[entrypoint] booting opencode serve on 0.0.0.0:${PORT}"
 exec opencode serve --hostname 0.0.0.0 --port "$PORT"
