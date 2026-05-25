@@ -16,7 +16,7 @@ const CONTAINER_ENV_PREFIX = "CONTAINER_ENV_";
 
 const EnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
-  UI_USERNAME: z.string().min(1),
+  UI_USERNAME: z.string().min(1).default("admin"),
   MASTER_KEY: z.string().min(8),
   // HMAC-SHA256 signing key for per-pod agent tokens (see
   // src/server/auth/agent-token.ts). Tokens issued at pod-spawn time are
@@ -58,9 +58,9 @@ const EnvSchema = z.object({
     .transform((v) => v === "true"),
   // true when web/worker run inside EKS — enables pod-DNS routing, disables NodePort creation
   IN_CLUSTER: z.enum(["true", "false"]).optional().default("false"),
-  PREINSTALLED_GITHUB_REPO: z.string().min(1),
-  LITELLM_API_BASE: z.string().min(1),
-  LITELLM_API_KEY: z.string().min(1),
+  PREINSTALLED_GITHUB_REPO: z.string().default(""),
+  LITELLM_API_BASE: z.string().default(""),
+  LITELLM_API_KEY: z.string().default(""),
   // The harness inside the sandbox uses this to POST/GET memory endpoints
   // on this platform. Empty string disables the memory tools gracefully.
   LAP_BASE_URL: z.string().default(""),
