@@ -10,9 +10,11 @@ LiteLLM Agent Platform manages:
 - **CRON schedules** - run agents on a schedule
 - **Memory** - agents remember context across sessions
 
-## Make an agent in the UI
+## Usage: Create an Agent
 
-The easy way. Non technical people can make agents too. Select a harness, attach your tools, set a system prompt, and deploy.
+### Make an agent in the UI
+
+Select a harness, attach your tools, set a system prompt, and deploy.
 
 > _[ screenshot: select a harness ]_
 
@@ -28,7 +30,7 @@ The easy way. Non technical people can make agents too. Select a harness, attach
 
 Add a key to the platform once. When you sign in, your GitHub and AWS MCPs are already there. You do not add them again. The agent just uses the keys.
 
-## Make an agent with the API
+## Usage: Create an Agent API
 
 Everything you can make in the UI you can make over the API.
 
