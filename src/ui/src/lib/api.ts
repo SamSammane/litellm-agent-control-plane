@@ -27,10 +27,20 @@ export class ApiError extends Error {
   status: number;
   body: string;
   constructor(status: number, body: string, message?: string) {
-    super(message ?? `HTTP ${status}: ${body}`);
+    super(message ?? formatApiErrorMessage(status, body));
     this.status = status;
     this.body = body;
   }
+}
+
+function formatApiErrorMessage(status: number, body: string): string {
+  const message = responseErrorText(body);
+  return message ? `HTTP ${status}: ${message}` : `HTTP ${status}`;
+}
+
+function looksLikeHtmlDocument(text: string): boolean {
+  const sample = text.slice(0, 500).toLowerCase();
+  return sample.includes("<!doctype html") || sample.includes("<html") || sample.includes("<body");
 }
 
 function responseErrorText(body: string): string {
@@ -49,7 +59,11 @@ function responseErrorText(body: string): string {
   } catch {
     /* use raw text */
   }
-  return trimmed.replace(/\s+/g, " ");
+  if (looksLikeHtmlDocument(trimmed)) {
+    return "The gateway returned an HTML error page instead of API JSON. Check that the backend API server or proxy is running.";
+  }
+  const compact = trimmed.replace(/\s+/g, " ");
+  return compact.length > 500 ? `${compact.slice(0, 497)}...` : compact;
 }
 
 export function apiErrorMessage(error: unknown, fallback: string): string {
@@ -1173,6 +1187,26 @@ export async function discoverMcpToolsFromUrl(
   });
   const data = await jsonOrThrow<{ tools?: McpToolDef[] }>(res);
   return data.tools ?? [];
+}
+
+export interface McpOAuthStartResponse {
+  authorization_url: string;
+  redirect_uri: string;
+}
+
+export async function startMcpOAuth(
+  server_id: string,
+  input: { redirectAfter?: string; userId?: string } = {},
+): Promise<McpOAuthStartResponse> {
+  const res = await req(`/v1/mcp/server/${encodeURIComponent(server_id)}/oauth/start`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-user-id": input.userId ?? "default",
+    },
+    body: JSON.stringify({ redirect_after: input.redirectAfter ?? "/integrations" }),
+  });
+  return jsonOrThrow<McpOAuthStartResponse>(res);
 }
 
 /** Store a user credential for a BYOK MCP server. */
